@@ -1,0 +1,1415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARTEMIS II — Mission Trajectory Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Roboto Mono', ui-monospace, monospace;
+    background: #02060a;
+    color: #d8e0e8;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  #view {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: block;
+  }
+  .panel {
+    position: absolute;
+    background: rgba(8, 14, 22, 0.78);
+    border: 1px solid #1a3550;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 10;
+    padding: 12px 16px;
+  }
+  .panel h2 {
+    font-size: 10px;
+    font-weight: 700;
+    color: #61dafb;
+    letter-spacing: 0.22em;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #1a3550;
+    padding-bottom: 5px;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    line-height: 1.7;
+    gap: 12px;
+  }
+  .label { color: #6c869b; font-weight: 300; letter-spacing: 0.1em; font-size: 10px; }
+  .value { color: #d8e0e8; font-weight: 500; text-align: right; }
+  .value.warn { color: #ffb000; }
+  .value.crit { color: #ff5050; }
+  .value.ok { color: #66ff99; }
+
+  #telemetry {
+    top: 16px;
+    left: 16px;
+    width: 280px;
+  }
+  #status {
+    top: 16px;
+    right: 16px;
+    width: 280px;
+  }
+  #phase-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #61dafb;
+    letter-spacing: 0.15em;
+    margin-bottom: 8px;
+    line-height: 1.1;
+  }
+  .stage-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #1a3550;
+    border: 1px solid #2a5070;
+    border-radius: 2px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: #61dafb;
+    font-weight: 500;
+  }
+  .stage-pill.spent { background: #2a1a1a; border-color: #5a2a2a; color: #888; }
+
+  #log {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    width: 360px;
+    max-height: 200px;
+    overflow: hidden;
+    z-index: 10;
+  }
+  #log-entries {
+    max-height: 160px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #2a5070 #0a1420;
+  }
+  #log-entries::-webkit-scrollbar { width: 4px; }
+  #log-entries::-webkit-scrollbar-track { background: #0a1420; }
+  #log-entries::-webkit-scrollbar-thumb { background: #2a5070; }
+  .log-entry {
+    font-size: 11px;
+    padding: 4px 0;
+    color: #8aa0b5;
+    border-bottom: 1px solid #0e1d2c;
+    line-height: 1.4;
+  }
+  .log-entry .t { color: #61dafb; margin-right: 10px; font-weight: 500; }
+
+  #controls {
+    top: 270px;
+    left: 16px;
+    width: 280px;
+  }
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .ctrl-row:last-child { margin-bottom: 0; }
+  .ctrl-row .label {
+    width: 64px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+  }
+  .ctrl-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .ctrl-buttons button {
+    padding: 8px 4px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+  .ctrl-buttons #action { grid-column: 1 / -1; }
+  input[type=range] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    background: #1a3550;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: #61dafb;
+    border: none;
+    cursor: pointer;
+    border-radius: 0;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: #61dafb;
+    border: none;
+    cursor: pointer;
+    border-radius: 0;
+  }
+  .num {
+    width: 56px;
+    text-align: right;
+    font-size: 11px;
+    color: #d8e0e8;
+    font-weight: 500;
+  }
+  button {
+    font-family: inherit;
+    background: #1a3550;
+    color: #61dafb;
+    border: 1px solid #2a5070;
+    padding: 9px 16px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    font-weight: 500;
+  }
+  button:hover { background: #2a5070; color: #fff; }
+  button:disabled { background: #0e1d2c; color: #3a5570; border-color: #14273c; cursor: not-allowed; }
+  button.primary {
+    background: #61dafb;
+    color: #02060a;
+    border-color: #61dafb;
+    font-weight: 700;
+  }
+  button.primary:hover { background: #fff; border-color: #fff; }
+  button.danger {
+    background: #2a0e0e;
+    color: #ff8080;
+    border-color: #5a1a1a;
+  }
+  button.danger:hover { background: #5a1a1a; color: #ffaaaa; }
+
+  #brand {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    letter-spacing: 0.5em;
+    color: #6c869b;
+    z-index: 10;
+    pointer-events: none;
+    font-weight: 300;
+  }
+  #brand strong { color: #61dafb; font-weight: 700; }
+  #brand .sub { color: #6c869b; font-size: 9px; letter-spacing: 0.4em; }
+</style>
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <div id="brand"><strong>ARTEMIS II</strong> &nbsp;·&nbsp; <span class="sub">LAUNCH-TO-SPLASHDOWN</span></div>
+
+  <div id="telemetry" class="panel">
+    <h2>TELEMETRY</h2>
+    <div class="row"><span class="label">MET</span><span class="value" id="t-met">T-00:00:00</span></div>
+    <div class="row"><span class="label">ALTITUDE</span><span class="value" id="t-alt">0 km</span></div>
+    <div class="row"><span class="label">VELOCITY</span><span class="value" id="t-vel">0 m/s</span></div>
+    <div class="row"><span class="label">V-RAD / V-TAN</span><span class="value" id="t-vrt">0 / 0</span></div>
+    <div class="row"><span class="label">G-FORCE</span><span class="value" id="t-g">0.00 g</span></div>
+    <div class="row"><span class="label">THRUST</span><span class="value" id="t-thrust">0 kN</span></div>
+    <div class="row"><span class="label">MASS</span><span class="value" id="t-mass">0 t</span></div>
+    <div class="row"><span class="label">FUEL (STAGE)</span><span class="value" id="t-fuel">0%</span></div>
+  </div>
+
+  <div id="status" class="panel">
+    <h2>MISSION STATUS</h2>
+    <div id="phase-name">PRE-LAUNCH</div>
+    <div class="row"><span class="label">ACTIVE STAGE</span><span class="value" id="t-stage"><span class="stage-pill">SRB+CORE</span></span></div>
+    <div class="row"><span class="label">TIME WARP</span><span class="value" id="t-warp">1×</span></div>
+    <div class="row"><span class="label">APOAPSIS</span><span class="value" id="t-apo">—</span></div>
+    <div class="row"><span class="label">PERIAPSIS</span><span class="value" id="t-peri">—</span></div>
+    <div class="row"><span class="label">PERIOD</span><span class="value" id="t-period">—</span></div>
+  </div>
+
+  <div id="log" class="panel">
+    <h2>FLIGHT LOG</h2>
+    <div id="log-entries"></div>
+  </div>
+
+  <div id="controls" class="panel">
+    <h2>FLIGHT CONTROL</h2>
+    <div class="ctrl-row">
+      <span class="label">THROTTLE</span>
+      <input type="range" id="throttle" min="0" max="100" value="100">
+      <div class="num"><span id="throttle-val">100</span>%</div>
+    </div>
+    <div class="ctrl-row">
+      <span class="label">WARP</span>
+      <input type="range" id="warp" min="0" max="4" value="2" step="1">
+      <div class="num"><span id="warp-val">100</span>×</div>
+    </div>
+    <div class="ctrl-buttons">
+      <button id="action" class="primary">LAUNCH</button>
+      <button id="pause">PAUSE</button>
+      <button id="reset" class="danger">RESET</button>
+    </div>
+  </div>
+
+<script>
+'use strict';
+
+// =============================================================================
+// PHYSICAL CONSTANTS (Table 1 from the paper)
+// =============================================================================
+const C = {
+  muE:   398600.4418,   // km^3/s^2  Earth gravitational parameter
+  muM:   4902.80,       // km^3/s^2  Moon gravitational parameter
+  RE:    6378,          // km        Earth radius
+  RM:    1737,          // km        Moon radius
+  Rmoon: 384400,        // km        Earth-Moon distance (mean)
+  RSOI:  66117,         // km        Lunar sphere of influence  (eq. 55: Rm * (mu_M/mu_E)^(2/5))
+  ATM:   122,           // km        Entry interface altitude
+  G0:    9.80665e-3,    // km/s^2    standard gravity (for Tsiolkovsky)
+
+  // Mission targets from Tables 2/3
+  PARK_RP: 6563,        // km        parking orbit perigee radius (185 km alt)
+  PARK_RA: 8631,        // km        parking orbit apogee radius (2253 km alt)
+  HEO_RA:  80378,       // km        HEO apogee radius (74,000 km alt)
+  HEO_DV:  2.293,       // km/s      HEO insertion delta-v
+  TLI_DV:  0.330,       // km/s      TLI delta-v
+  PERILUNE: 9737,       // km        targeted perilune radius (8000 km alt)
+};
+
+// Stages (mass in tonnes, thrust in kN, mdot in t/s).
+// Numbers tuned to match SLS Block 1 / Orion stack performance milestones.
+// ve (effective exhaust velocity, km/s) = thrust_kN / mdot_t / 1000  → drives Tsiolkovsky.
+const STAGES = [
+  { id:0, name:'SRB+CORE', mass:2608, fuel:1450, thrust:39440, mdot:11.3,    burnDur:128 },
+  { id:1, name:'CORE',     mass:957,  fuel:700,  thrust:7440,  mdot:2.0,     burnDur:350 },
+  { id:2, name:'ICPS',     mass:80,   fuel:30,   thrust:110,   mdot:0.02428, burnDur:0   },
+  { id:3, name:'ORION',    mass:25.5, fuel:9,    thrust:33.4,  mdot:0.0085,  burnDur:0   },
+];
+
+const PHASE_LABEL = {
+  PRELAUNCH:   'PRE-LAUNCH',
+  LAUNCH:      'ASCENT',
+  LEO:         'PARKING ORBIT',
+  HEO_BURN:    'HEO INSERTION',
+  HEO:         'HIGH-EARTH ORBIT',
+  TLI_BURN:    'TRANS-LUNAR INJECTION',
+  TRANSLUNAR:  'TRANSLUNAR COAST',
+  LUNAR_SOI:   'LUNAR FLYBY',
+  TRANSEARTH:  'TRANSEARTH COAST',
+  ENTRY:       'ENTRY INTERFACE',
+  SPLASHDOWN:  'SPLASHDOWN',
+};
+
+// Trajectory trail color per phase (Earth-tone for ballistic, hot for thrusting)
+const PHASE_COLOR = {
+  PRELAUNCH:   '#888888',
+  LAUNCH:      '#ff8a30',
+  LEO:         '#61dafb',
+  HEO_BURN:    '#ffb000',
+  HEO:         '#86c0f0',
+  TLI_BURN:    '#ffd600',
+  TRANSLUNAR:  '#66ff99',
+  LUNAR_SOI:   '#d160ff',
+  TRANSEARTH:  '#60a8ff',
+  ENTRY:       '#ff5050',
+  SPLASHDOWN:  '#ffffff',
+};
+
+// Time-warp slider mapping (index 0..4)
+const WARP_LEVELS = [1, 10, 100, 1000, 10000];
+
+// Auto-warp recommendations per phase
+const AUTO_WARP = {
+  PRELAUNCH:   100,
+  LAUNCH:      100,
+  LEO:         1000,
+  HEO_BURN:    100,
+  HEO:         1000,
+  TLI_BURN:    10,
+  TRANSLUNAR:  10000,
+  LUNAR_SOI:   1000,
+  TRANSEARTH:  10000,
+  ENTRY:       10,
+  SPLASHDOWN:  1,
+};
+
+// =============================================================================
+// SIMULATION STATE
+// =============================================================================
+let sim;
+
+function freshSim() {
+  return {
+    phase:       'PRELAUNCH',
+    started:     false,
+    paused:      false,
+    finished:    false,
+
+    met:         0,                  // mission elapsed time (s)
+    r:           [0, C.RE],          // Earth-centered inertial position (km) — launch pad at top of Earth so ascent reads as "up" in screen
+    v:           [0, 0],             // velocity (km/s)
+    accelMag:    0,                  // last-frame total acceleration (km/s^2) for G-force
+
+    moonPhase0:  Math.PI,            // initial moon angle at MET=0 (radians)
+    moonPhaseLocked: false,          // set after TLI for visual encounter
+    omegaM:      Math.sqrt(C.muE / Math.pow(C.Rmoon, 3)),
+
+    stageIdx:    0,
+    massTotal:   STAGES[0].mass,     // tonnes
+    stageFuel:   STAGES[0].fuel,     // tonnes (current stage propellant remaining)
+    stageFuel0:  STAGES[0].fuel,     // tonnes (original stage propellant for percent)
+    stagesSpent: [false, false, false, false],
+
+    thrustNow:   0,                  // kN (telemetry value)
+    burning:     false,              // true while thrust telemetry should display non-zero
+    thrustActive:false,              // true when thrust is physically applied in deriv()
+    burnTimerWall:0,                 // wall-seconds remaining on cosmetic impulse-burn display
+    burnDir:     [0, 1],             // unit vector
+    burnPitch:   0,                  // rad (for ascent: angle from radial)
+
+    leoOrbits:   0,
+    heoOrbits:   0,
+    lastTrueAnomalySign: 0,
+
+    apoapsis:    0,
+    periapsis:   0,
+    period:      0,
+
+    inSOI:       false,
+    splashWall:  0,                  // wall-seconds remaining on splashdown hold
+    tcmApplied:  false,              // post-flyby trajectory correction maneuver fired?
+
+    throttle:    1.0,
+    warp:        100,
+    autoWarpEnabled: true,
+
+    trail:       [],                 // [{x, y, phase}]  in km, world coords
+    trailPhase:  'PRELAUNCH',
+
+    view: {
+      halfWidth:    30,              // km — start zoomed in on the launch pad
+      targetHalf:   30,
+      center:       [0, C.RE],       // camera focus point (km, world coords)
+      targetCenter: [0, C.RE],
+    },
+
+    log: [],
+  };
+}
+
+// =============================================================================
+// VECTOR HELPERS
+// =============================================================================
+const v2 = {
+  add:   (a,b)  => [a[0]+b[0], a[1]+b[1]],
+  sub:   (a,b)  => [a[0]-b[0], a[1]-b[1]],
+  scale: (a,k)  => [a[0]*k, a[1]*k],
+  dot:   (a,b)  => a[0]*b[0]+a[1]*b[1],
+  mag:   (a)    => Math.hypot(a[0], a[1]),
+  norm:  (a)    => { const m=Math.hypot(a[0],a[1])||1; return [a[0]/m, a[1]/m]; },
+  perp:  (a)    => [-a[1], a[0]],
+};
+
+// =============================================================================
+// MOON POSITION (Earth-centered inertial, circular orbit approximation)
+// =============================================================================
+function moonPos(t) {
+  const a = sim.moonPhase0 + sim.omegaM * t;
+  return [C.Rmoon * Math.cos(a), C.Rmoon * Math.sin(a)];
+}
+function moonVel(t) {
+  const a = sim.moonPhase0 + sim.omegaM * t;
+  const w = sim.omegaM;
+  return [-C.Rmoon * w * Math.sin(a), C.Rmoon * w * Math.cos(a)];
+}
+
+// =============================================================================
+// PHYSICS — accelerations  (patched-conic approximation, §7.2 of the paper)
+// Outside lunar SOI: spacecraft feels Earth gravity only.
+// Inside  lunar SOI: spacecraft feels Moon  gravity only (hyperbolic flyby).
+// The SOI radius is given by eq. 55: R_SOI ≈ R_m · (μ_M/μ_E)^(2/5).
+// =============================================================================
+function gravityAt(r, t) {
+  const m = moonPos(t);
+  const dx = r[0]-m[0], dy = r[1]-m[1];
+  const rM = Math.hypot(dx, dy);
+  if (rM < C.RSOI) {
+    const kM = -C.muM / (rM*rM*rM);
+    return [ kM*dx, kM*dy ];
+  }
+  const rE = Math.hypot(r[0], r[1]);
+  const kE = -C.muE / (rE*rE*rE);
+  return [ kE*r[0], kE*r[1] ];
+}
+
+// Atmospheric drag (used during ENTRY)
+// Exponential atmosphere: rho = rho0 * exp(-h/H)
+function dragAt(r, v) {
+  const alt = Math.hypot(r[0], r[1]) - C.RE;
+  if (alt > 200) return [0, 0];
+  const rho0 = 1.225;        // kg/m^3
+  const H = 7.249;           // km scale height
+  const rho = rho0 * Math.exp(-alt / H);
+  // Effective ballistic coefficient for Orion CM (mass ~9.3 t, area ~19.6 m^2, Cd ~1.2)
+  // Orion mass after service-module sep is ~9.3 t but we keep stack mass for simplicity.
+  const Cd = 1.3, A = 19.6, m_kg = sim.massTotal * 1000;
+  const speed_ms = Math.hypot(v[0], v[1]) * 1000;
+  // drag accel magnitude in m/s^2
+  const aDrag = 0.5 * rho * speed_ms * speed_ms * Cd * A / m_kg;
+  // direction opposite velocity, return in km/s^2
+  const vhat = v2.norm(v);
+  return [ -vhat[0] * aDrag * 1e-3, -vhat[1] * aDrag * 1e-3 ];
+}
+
+function thrustAccelKmS2() {
+  if (!sim.thrustActive) return [0,0];
+  const stage = STAGES[sim.stageIdx];
+  if (sim.stageFuel <= 0) return [0,0];
+  const T_kN = stage.thrust * sim.throttle;
+  // a [km/s^2] = (T[kN]*1000 N) / (m[t]*1000 kg) / 1000 (m->km)
+  const a = T_kN / sim.massTotal / 1000;
+  return [ sim.burnDir[0] * a, sim.burnDir[1] * a ];
+}
+
+// State derivative for RK4
+function deriv(state, t) {
+  const r = [state[0], state[1]];
+  const v = [state[2], state[3]];
+  const g = gravityAt(r, t);
+  const th = thrustAccelKmS2();
+  let ax = g[0] + th[0];
+  let ay = g[1] + th[1];
+  if (sim.phase === 'ENTRY') {
+    const d = dragAt(r, v);
+    ax += d[0]; ay += d[1];
+  }
+  return [ v[0], v[1], ax, ay ];
+}
+
+function rk4Step(dt) {
+  const t = sim.met;
+  const s0 = [sim.r[0], sim.r[1], sim.v[0], sim.v[1]];
+  const k1 = deriv(s0, t);
+  const s1 = [s0[0]+0.5*dt*k1[0], s0[1]+0.5*dt*k1[1], s0[2]+0.5*dt*k1[2], s0[3]+0.5*dt*k1[3]];
+  const k2 = deriv(s1, t+0.5*dt);
+  const s2 = [s0[0]+0.5*dt*k2[0], s0[1]+0.5*dt*k2[1], s0[2]+0.5*dt*k2[2], s0[3]+0.5*dt*k2[3]];
+  const k3 = deriv(s2, t+0.5*dt);
+  const s3 = [s0[0]+dt*k3[0], s0[1]+dt*k3[1], s0[2]+dt*k3[2], s0[3]+dt*k3[3]];
+  const k4 = deriv(s3, t+dt);
+
+  sim.r[0] = s0[0] + dt/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]);
+  sim.r[1] = s0[1] + dt/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]);
+  sim.v[0] = s0[2] + dt/6*(k1[2]+2*k2[2]+2*k3[2]+k4[2]);
+  sim.v[1] = s0[3] + dt/6*(k1[3]+2*k2[3]+2*k3[3]+k4[3]);
+
+  // Track acceleration magnitude (for G-force readout)
+  const ax = (k1[2]+2*k2[2]+2*k3[2]+k4[2])/6;
+  const ay = (k1[3]+2*k2[3]+2*k3[3]+k4[3])/6;
+  sim.accelMag = Math.hypot(ax, ay);
+
+  // Continuous-thrust mass consumption (LAUNCH phase only — impulse burns
+  // already accounted mass via Tsiolkovsky at burn start).
+  if (sim.thrustActive && sim.stageFuel > 0) {
+    const stage = STAGES[sim.stageIdx];
+    const dm = stage.mdot * sim.throttle * dt;
+    sim.stageFuel -= dm;
+    sim.massTotal -= dm;
+    if (sim.stageFuel < 0) sim.stageFuel = 0;
+  }
+
+  sim.met += dt;
+}
+
+// =============================================================================
+// ORBITAL ELEMENTS (about Earth)
+// vis-viva: v^2 = mu * (2/r - 1/a)  →  a = 1 / (2/r - v^2/mu)
+// =============================================================================
+function elementsEarth() {
+  const r = Math.hypot(sim.r[0], sim.r[1]);
+  const v = Math.hypot(sim.v[0], sim.v[1]);
+  const inv_a = 2/r - v*v/C.muE;
+  if (inv_a <= 0) {
+    // Hyperbolic / parabolic about Earth
+    return { a: -1, e: 0, ra: -1, rp: -1, T: -1 };
+  }
+  const a = 1 / inv_a;
+  // Specific angular momentum (z-component in 2D)
+  const h = sim.r[0]*sim.v[1] - sim.r[1]*sim.v[0];
+  // Eccentricity from h^2 = mu * a * (1 - e^2)
+  const oneMinusE2 = (h*h) / (C.muE * a);
+  const e = Math.sqrt(Math.max(0, 1 - oneMinusE2));
+  const rp = a * (1 - e);
+  const ra = a * (1 + e);
+  const T = 2 * Math.PI * Math.sqrt(a*a*a / C.muE);
+  return { a, e, ra, rp, T };
+}
+
+// =============================================================================
+// MOON-PHASE TARGETING
+// When TLI fires, reposition the Moon so that the spacecraft's apogee
+// of the post-TLI ellipse coincides (in time + angle) with the Moon position.
+// =============================================================================
+function alignMoonForFlyby() {
+  // Post-TLI: spacecraft is at perigee with prograde velocity tangent to orbit.
+  // The orbit's apogee lies on the line from Earth through perigee, opposite side.
+  // a = (rp + ra)/2 with ra ≈ Rmoon.
+  const rp = Math.hypot(sim.r[0], sim.r[1]);
+  // After TLI burn the spacecraft will be pushed; at burn end we'll re-align.
+  const ra = C.Rmoon;
+  const a = (rp + ra) / 2;
+  const tof = Math.PI * Math.sqrt(a*a*a / C.muE);   // half-period to apogee
+  const apogeeAngle = Math.atan2(-sim.r[1], -sim.r[0]); // opposite side from current r
+  // Want Moon at apogee direction (with small lead so SC enters SOI before apogee)
+  const targetAngle = apogeeAngle - 0.10;  // ~6° lead
+  const moonAtTOF = targetAngle;
+  // moonAtTOF = moonPhase0 + omega*(met + tof)  →  solve for moonPhase0
+  sim.moonPhase0 = moonAtTOF - sim.omegaM * (sim.met + tof);
+  // Normalize
+  while (sim.moonPhase0 < -Math.PI) sim.moonPhase0 += 2*Math.PI;
+  while (sim.moonPhase0 >  Math.PI) sim.moonPhase0 -= 2*Math.PI;
+  sim.moonPhaseLocked = true;
+}
+
+// =============================================================================
+// PHASE TRANSITIONS
+// =============================================================================
+function setPhase(p, msg) {
+  if (sim.phase !== p) {
+    sim.phase = p;
+    if (msg) addLog(msg);
+    if (sim.autoWarpEnabled) {
+      const target = AUTO_WARP[p];
+      const idx = WARP_LEVELS.indexOf(target);
+      if (idx >= 0) {
+        sim.warp = target;
+        ui.warp.value = idx;
+        ui.warpVal.textContent = target;
+      }
+    }
+  }
+}
+
+// LAUNCH ascent: scripted thrust+pitch program. Force-snap to parking orbit at MECO.
+function launchUpdate(dt) {
+  // Stage transitions by MET
+  if (sim.met >= 128 && sim.stageIdx === 0) {
+    sim.stagesSpent[0] = true;
+    sim.stageIdx = 1;
+    sim.massTotal = STAGES[1].mass;
+    sim.stageFuel = STAGES[1].fuel;
+    sim.stageFuel0 = STAGES[1].fuel;
+    addLog('SRB SEPARATION');
+  }
+  if (sim.met >= 478 && sim.stageIdx === 1) {
+    sim.stagesSpent[1] = true;
+    sim.stageIdx = 2;
+    sim.massTotal = STAGES[2].mass;
+    sim.stageFuel = STAGES[2].fuel;
+    sim.stageFuel0 = STAGES[2].fuel;
+    addLog('MAIN ENGINE CUT-OFF · CORE STAGE SEPARATION');
+  }
+
+  // Pitch program: 0 (radial) → ~70° over the full 478s burn.
+  // Slow gravity turn keeps net radial accel positive — at higher pitch the
+  // core stage T/W (~1.25 g) can't overcome gravity and the rocket falls.
+  const pitch = Math.min(70 * Math.PI/180, (sim.met / 478) * (70 * Math.PI/180));
+  sim.burnPitch = pitch;
+  const rhat = v2.norm(sim.r);
+  const that = v2.perp(rhat);   // tangent (counterclockwise)
+  sim.burnDir = [
+    Math.cos(pitch)*rhat[0] + Math.sin(pitch)*that[0],
+    Math.cos(pitch)*rhat[1] + Math.sin(pitch)*that[1],
+  ];
+  sim.burning      = sim.stageIdx <= 1 && sim.stageFuel > 0;
+  sim.thrustActive = sim.burning;
+  sim.thrustNow    = sim.burning ? STAGES[sim.stageIdx].thrust * sim.throttle : 0;
+
+  // MECO + circularization. Treat the ascent's final altitude as the parking
+  // orbit's perigee (rather than snapping position down to 185 km, which
+  // produced a visible "dip" whenever ascent overshot). Apogee is held at the
+  // spec value; vp comes from vis-viva (eq. 4).
+  if (sim.met >= 478) {
+    const rp = Math.hypot(sim.r[0], sim.r[1]);
+    const ra = Math.max(C.PARK_RA, rp + 100);
+    const a  = (rp + ra) / 2;
+    const vp = Math.sqrt(C.muE * (2/rp - 1/a));
+    const tan = v2.perp(v2.norm(sim.r));
+    sim.v = [tan[0]*vp, tan[1]*vp];
+    sim.burning      = false;
+    sim.thrustActive = false;
+    sim.thrustNow    = 0;
+    sim.massTotal    = STAGES[2].mass;
+    sim.stageFuel    = STAGES[2].fuel;
+    sim.stageFuel0   = STAGES[2].fuel;
+    sim.stageIdx     = 2;
+    sim.lastTrueAnomalySign = 0;
+    const peri = (rp - C.RE).toFixed(0);
+    const apo  = (ra - C.RE).toFixed(0);
+    setPhase('LEO', `PARKING ORBIT INSERTION · ${peri}×${apo} km · vp ${(vp*1000).toFixed(0)} m/s`);
+  }
+}
+
+// Apply an impulsive prograde delta-v.  Mass loss via Tsiolkovsky.
+// Telemetry shows a cosmetic burn for `wallSec` real-time seconds so the
+// user can see the thrust/fuel readouts move (the orbital change itself
+// is instantaneous, matching the analytical ΔV in the paper).
+function applyImpulseBurn(dV, wallSec, label) {
+  const tangent = v2.norm(sim.v);
+  sim.v[0] += tangent[0] * dV;
+  sim.v[1] += tangent[1] * dV;
+
+  // Effective exhaust velocity (km/s) = T_kN / mdot_t / 1000
+  const stage = STAGES[sim.stageIdx];
+  const ve_kms = stage.thrust / stage.mdot / 1000;
+  const ratio = Math.exp(-dV / ve_kms);
+  const massNew = sim.massTotal * ratio;
+  const fuelUsed = sim.massTotal - massNew;
+  sim.massTotal = massNew;
+  sim.stageFuel = Math.max(0, sim.stageFuel - fuelUsed);
+
+  // Cosmetic display
+  sim.burning      = true;
+  sim.thrustActive = false;          // velocity already updated; do not double-apply
+  sim.burnDir      = tangent;
+  sim.burnTimerWall= wallSec;
+  sim.thrustNow    = stage.thrust * sim.throttle;
+
+  if (label) addLog(label);
+}
+
+// Detect "near perigee": altitude minimum (radial velocity sign change from − to +)
+function nearPerigee() {
+  const radialV = v2.dot(sim.v, v2.norm(sim.r));
+  const sign = radialV >= 0 ? 1 : -1;
+  const wasNeg = sim.lastTrueAnomalySign === -1;
+  sim.lastTrueAnomalySign = sign;
+  return wasNeg && sign === 1;
+}
+
+function leoUpdate() {
+  if (nearPerigee()) {
+    sim.leoOrbits++;
+    if (sim.leoOrbits >= 1) {
+      setPhase('HEO_BURN');
+      applyImpulseBurn(C.HEO_DV, 6, 'HEO INSERTION BURN · ICPS · ΔV 2293 m/s');
+    }
+  }
+}
+
+function heoBurnUpdate() {
+  if (!sim.burning) {
+    sim.thrustNow = 0;
+    setPhase('HEO', 'HEO INSERTION COMPLETE · APOGEE RAISED TO ~74,000 km');
+    sim.lastTrueAnomalySign = 0;
+  }
+}
+
+function heoUpdate() {
+  if (nearPerigee()) {
+    sim.heoOrbits++;
+    if (sim.heoOrbits >= 1) {
+      // Align Moon BEFORE TLI Δv is applied (uses current rp for ellipse)
+      alignMoonForFlyby();
+      setPhase('TLI_BURN');
+      applyImpulseBurn(C.TLI_DV, 4, 'TLI BURN · ICPS RE-IGNITION · ΔV 330 m/s');
+    }
+  }
+}
+
+function tliBurnUpdate() {
+  if (!sim.burning) {
+    sim.thrustNow = 0;
+    addLog('TLI COMPLETE · v∞ = 1.428 km/s (C₃ = 2.039 km²/s²)');
+    addLog('ICPS JETTISONED · ORION ON FREE-RETURN');
+    sim.stagesSpent[2] = true;
+    sim.stageIdx = 3;
+    sim.massTotal = STAGES[3].mass;
+    sim.stageFuel = STAGES[3].fuel;
+    sim.stageFuel0 = STAGES[3].fuel;
+    setPhase('TRANSLUNAR', 'TRANSLUNAR COAST · 4.5-day cruise to lunar SOI');
+  }
+}
+
+function checkSOI() {
+  const m = moonPos(sim.met);
+  const d = Math.hypot(sim.r[0]-m[0], sim.r[1]-m[1]);
+  return d < C.RSOI;
+}
+
+function translunarUpdate() {
+  if (checkSOI()) {
+    sim.inSOI = true;
+    const m = moonPos(sim.met);
+    const d = Math.hypot(sim.r[0]-m[0], sim.r[1]-m[1]);
+    addLog(`LUNAR SOI ENTRY · range to Moon ${d.toFixed(0)} km`);
+    setPhase('LUNAR_SOI', 'HYPERBOLIC LUNAR ENCOUNTER');
+  }
+}
+
+function lunarSOIUpdate() {
+  if (!checkSOI()) {
+    sim.inSOI = false;
+    addLog('LUNAR SOI EXIT · OUTBOUND ASYMPTOTE');
+    setPhase('TRANSEARTH', 'TRANSEARTH COAST · free-return leg');
+  }
+}
+
+// Inbound trajectory correction. Builds a return ellipse that has the current
+// post-flyby position as apoapsis and the desired entry-interface point as
+// periapsis, then sets velocity to the vis-viva value tangent to that ellipse.
+// (Real-mission analogue: the inbound TCMs in Table 3 of the paper, lumped.)
+function applyReturnTCM() {
+  const r = sim.r;
+  const rmag = Math.hypot(r[0], r[1]);
+  const targetRp = C.RE - 30;          // slightly below surface ⇒ guaranteed entry
+  const a = (targetRp + rmag) / 2;
+  const vmag = Math.sqrt(C.muE * (2/rmag - 1/a));   // vis-viva, eq. 4
+
+  const tHat = v2.perp(v2.norm(r));    // CCW tangent
+  const sign = v2.dot(tHat, sim.v) >= 0 ? 1 : -1;   // preserve prograde sense
+  const newV = [tHat[0]*vmag*sign, tHat[1]*vmag*sign];
+  const dv = Math.hypot(newV[0]-sim.v[0], newV[1]-sim.v[1]);
+  sim.v = newV;
+  addLog(`TCM · INBOUND TARGETING · ΔV ${(dv*1000).toFixed(0)} m/s`);
+}
+
+function transearthUpdate() {
+  if (!sim.tcmApplied) {
+    sim.tcmApplied = true;
+    applyReturnTCM();
+  }
+  const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
+  if (alt < C.ATM) {
+    addLog(`ENTRY INTERFACE · ALT ${alt.toFixed(0)} km · v ${(v2.mag(sim.v)*1000).toFixed(0)} m/s`);
+    setPhase('ENTRY');
+  }
+}
+
+function entryUpdate() {
+  const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
+  if (alt <= 0) {
+    const rhat = v2.norm(sim.r);
+    sim.r = [rhat[0]*C.RE, rhat[1]*C.RE];
+    sim.v = [0, 0];
+    sim.thrustNow = 0;
+    sim.splashWall = 8;            // wall-seconds to display result
+    addLog('SPLASHDOWN · CREW SAFE · MISSION COMPLETE');
+    setPhase('SPLASHDOWN');
+  }
+}
+
+function splashdownUpdate() {
+  // Wall-clock countdown handled in simStep; nothing to do here per-substep
+}
+
+function phaseUpdate() {
+  switch (sim.phase) {
+    // LAUNCH is updated explicitly in simStep before each integration sub-step
+    case 'LEO':         leoUpdate();          break;
+    case 'HEO_BURN':    heoBurnUpdate();      break;
+    case 'HEO':         heoUpdate();          break;
+    case 'TLI_BURN':    tliBurnUpdate();      break;
+    case 'TRANSLUNAR':  translunarUpdate();   break;
+    case 'LUNAR_SOI':   lunarSOIUpdate();     break;
+    case 'TRANSEARTH':  transearthUpdate();   break;
+    case 'ENTRY':       entryUpdate();        break;
+    case 'SPLASHDOWN':  splashdownUpdate();   break;
+  }
+}
+
+// =============================================================================
+// MAIN STEP — advances simulation by realDt seconds of wall-clock time,
+// scaled by current warp factor. Sub-steps to keep RK4 numerically sane.
+// =============================================================================
+function simStep(realDt) {
+  if (!sim.started || sim.paused) return;
+
+  // Cosmetic burn timer (wall-clock, independent of warp)
+  if (sim.burning && sim.burnTimerWall > 0) {
+    sim.burnTimerWall -= realDt;
+    if (sim.burnTimerWall <= 0) {
+      sim.burning   = false;
+      sim.thrustNow = 0;
+    }
+  }
+
+  // Splashdown: freeze on surface, count down wall clock, then auto-loop
+  if (sim.phase === 'SPLASHDOWN') {
+    sim.splashWall -= realDt;
+    if (sim.splashWall <= 0) {
+      addLog('AUTO-RESTART · INITIALIZING NEW MISSION');
+      fullReset(true);
+    }
+    return;
+  }
+
+  let warpEff = sim.warp;
+  // Force-down warp on close Earth approach so atmospheric entry is not
+  // skipped by a single coarse sub-step.
+  if (sim.phase === 'TRANSEARTH') {
+    const r = Math.hypot(sim.r[0], sim.r[1]);
+    if (r < 30000) warpEff = Math.min(warpEff, 100);
+    if (r < 12000) warpEff = Math.min(warpEff, 10);
+  }
+  let dtTotal = realDt * warpEff;
+
+  // Maximum integration step size (s) — tighter during powered/atmospheric flight
+  let maxStep;
+  switch (sim.phase) {
+    case 'LAUNCH':      maxStep = 0.5;  break;
+    case 'HEO_BURN':
+    case 'TLI_BURN':    maxStep = 1.0;  break;
+    case 'ENTRY':       maxStep = 0.25; break;
+    case 'LUNAR_SOI':   maxStep = 30;   break;
+    case 'LEO':
+    case 'HEO':         maxStep = 60;   break;
+    case 'TRANSEARTH': {
+      const r = Math.hypot(sim.r[0], sim.r[1]);
+      maxStep = r < 12000 ? 0.5 : (r < 30000 ? 5 : 300);
+      break;
+    }
+    default:            maxStep = 300;
+  }
+  const subSteps = Math.max(1, Math.ceil(dtTotal / maxStep));
+  const subDt = dtTotal / subSteps;
+
+  for (let i = 0; i < subSteps; i++) {
+    if (sim.phase === 'LAUNCH') {
+      launchUpdate(subDt);
+    }
+    rk4Step(subDt);
+    phaseUpdate();
+    pushTrail();
+    if (sim.phase === 'SPLASHDOWN') break;
+  }
+
+  // Cache derived telemetry
+  const elem = elementsEarth();
+  sim.apoapsis  = elem.ra;
+  sim.periapsis = elem.rp;
+  sim.period    = elem.T;
+}
+
+function pushTrail() {
+  const last = sim.trail[sim.trail.length-1];
+  // Sample frequency: ~every 0.5% of view halfWidth
+  const stride = sim.view.halfWidth * 0.005;
+  if (!last || (last.phase !== sim.phase) ||
+      Math.hypot(last.x - sim.r[0], last.y - sim.r[1]) > stride) {
+    sim.trail.push({ x: sim.r[0], y: sim.r[1], phase: sim.phase });
+    // Cap at 5000 points
+    if (sim.trail.length > 5000) sim.trail.shift();
+  }
+}
+
+// =============================================================================
+// LOG
+// =============================================================================
+function fmtMET(t) {
+  const sign = t < 0 ? '-' : '+';
+  const at = Math.abs(t);
+  const d = Math.floor(at / 86400);
+  const h = Math.floor((at % 86400)/3600);
+  const m = Math.floor((at % 3600)/60);
+  const s = Math.floor(at % 60);
+  if (d > 0) return `T${sign}${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `T${sign}${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function addLog(msg) {
+  sim.log.push({ t: sim.met, msg });
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `<span class="t">${fmtMET(sim.met)}</span>${msg}`;
+  ui.logEntries.appendChild(div);
+  ui.logEntries.scrollTop = ui.logEntries.scrollHeight;
+  if (sim.log.length > 200) {
+    sim.log.shift();
+    if (ui.logEntries.firstChild) ui.logEntries.removeChild(ui.logEntries.firstChild);
+  }
+}
+
+// =============================================================================
+// UI BINDINGS
+// =============================================================================
+const ui = {
+  canvas:   document.getElementById('view'),
+  met:      document.getElementById('t-met'),
+  alt:      document.getElementById('t-alt'),
+  vel:      document.getElementById('t-vel'),
+  vrt:      document.getElementById('t-vrt'),
+  g:        document.getElementById('t-g'),
+  thrust:   document.getElementById('t-thrust'),
+  mass:     document.getElementById('t-mass'),
+  fuel:     document.getElementById('t-fuel'),
+  phase:    document.getElementById('phase-name'),
+  stage:    document.getElementById('t-stage'),
+  warpDisp: document.getElementById('t-warp'),
+  apo:      document.getElementById('t-apo'),
+  peri:     document.getElementById('t-peri'),
+  period:   document.getElementById('t-period'),
+  logEntries: document.getElementById('log-entries'),
+  throttle: document.getElementById('throttle'),
+  throttleVal: document.getElementById('throttle-val'),
+  warp:     document.getElementById('warp'),
+  warpVal:  document.getElementById('warp-val'),
+  action:   document.getElementById('action'),
+  pause:    document.getElementById('pause'),
+  reset:    document.getElementById('reset'),
+};
+
+ui.throttle.addEventListener('input', () => {
+  sim.throttle = parseInt(ui.throttle.value) / 100;
+  ui.throttleVal.textContent = ui.throttle.value;
+});
+ui.warp.addEventListener('input', () => {
+  sim.warp = WARP_LEVELS[parseInt(ui.warp.value)];
+  ui.warpVal.textContent = sim.warp;
+  sim.autoWarpEnabled = false;       // user override
+});
+ui.action.addEventListener('click', () => {
+  if (!sim.started) {
+    sim.started = true;
+    sim.lastTrueAnomalySign = 0;
+    setPhase('LAUNCH', 'IGNITION · SLS BLOCK 1 LIFT-OFF');
+    ui.action.disabled = true;
+    ui.action.textContent = 'AUTOPILOT';
+  }
+});
+ui.pause.addEventListener('click', () => {
+  sim.paused = !sim.paused;
+  ui.pause.textContent = sim.paused ? 'RESUME' : 'PAUSE';
+});
+ui.reset.addEventListener('click', () => {
+  fullReset(false);
+});
+
+function fullReset(autorestart) {
+  sim = freshSim();
+  sim.throttle = parseInt(ui.throttle.value) / 100;
+  sim.warp = WARP_LEVELS[parseInt(ui.warp.value)];
+  sim.autoWarpEnabled = true;
+  ui.logEntries.innerHTML = '';
+  ui.action.disabled = false;
+  ui.action.textContent = 'LAUNCH';
+  ui.pause.textContent = 'PAUSE';
+  addLog('SYSTEMS NOMINAL · STANDING BY');
+  if (autorestart) {
+    sim.started = true;
+    sim.lastTrueAnomalySign = 0;
+    setPhase('LAUNCH', 'IGNITION · SLS BLOCK 1 LIFT-OFF');
+    ui.action.disabled = true;
+    ui.action.textContent = 'AUTOPILOT';
+  }
+}
+
+function fmtKm(km) {
+  if (km > 1e6) return (km/1000).toFixed(0) + ' Mm';
+  if (km > 1e4) return km.toFixed(0) + ' km';
+  if (km > 100) return km.toFixed(1) + ' km';
+  return km.toFixed(2) + ' km';
+}
+
+function updateTelemetry() {
+  ui.met.textContent = fmtMET(sim.met);
+  const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
+  ui.alt.textContent = fmtKm(alt);
+  const speed = v2.mag(sim.v);
+  ui.vel.textContent = (speed * 1000).toFixed(0) + ' m/s';
+
+  const rhat = v2.norm(sim.r);
+  const that = v2.perp(rhat);
+  const vrad = v2.dot(sim.v, rhat) * 1000;   // m/s
+  const vtan = v2.dot(sim.v, that) * 1000;
+  ui.vrt.textContent = `${vrad.toFixed(0)} / ${vtan.toFixed(0)}`;
+
+  // G-force during burns/atmosphere; in pure free-fall report 0g
+  const gAccel = sim.thrustNow > 0
+    ? (sim.thrustNow * sim.throttle) / sim.massTotal / 9.80665   // kN/t = m/s^2
+    : 0;
+  // Add drag g-force during entry
+  let gTotal = gAccel;
+  if (sim.phase === 'ENTRY') {
+    const d = dragAt(sim.r, sim.v);
+    gTotal = Math.hypot(d[0], d[1]) * 1000 / 9.80665 + gAccel;
+  }
+  ui.g.textContent = gTotal.toFixed(2) + ' g';
+  ui.g.className = 'value' + (gTotal > 4 ? ' crit' : gTotal > 2 ? ' warn' : '');
+
+  ui.thrust.textContent = sim.thrustNow.toFixed(0) + ' kN';
+  ui.mass.textContent = sim.massTotal.toFixed(1) + ' t';
+  const fuelPct = sim.stageFuel0 > 0 ? Math.max(0, 100 * sim.stageFuel / sim.stageFuel0) : 0;
+  ui.fuel.textContent = fuelPct.toFixed(0) + '%';
+  ui.fuel.className = 'value' + (fuelPct < 10 ? ' crit' : fuelPct < 30 ? ' warn' : '');
+
+  ui.phase.textContent = PHASE_LABEL[sim.phase];
+  ui.phase.style.color = PHASE_COLOR[sim.phase];
+
+  // Stage pill
+  const stageName = STAGES[sim.stageIdx].name;
+  const spent = sim.stagesSpent[sim.stageIdx];
+  ui.stage.innerHTML = `<span class="stage-pill${spent ? ' spent' : ''}">${stageName}</span>`;
+
+  ui.warpDisp.textContent = sim.warp + '×' + (sim.autoWarpEnabled ? ' AUTO' : '');
+
+  if (sim.apoapsis > 0) {
+    ui.apo.textContent = fmtKm(sim.apoapsis - C.RE) + ' alt';
+  } else {
+    ui.apo.textContent = '— hyperbolic';
+  }
+  if (sim.periapsis > 0) {
+    ui.peri.textContent = fmtKm(sim.periapsis - C.RE) + ' alt';
+    ui.peri.className = 'value' + (sim.periapsis < C.RE + 50 ? ' warn' : '');
+  } else {
+    ui.peri.textContent = '— hyperbolic';
+  }
+  if (sim.period > 0) {
+    const p = sim.period;
+    if (p > 86400) ui.period.textContent = (p/86400).toFixed(2) + ' d';
+    else if (p > 3600) ui.period.textContent = (p/3600).toFixed(2) + ' h';
+    else ui.period.textContent = (p/60).toFixed(1) + ' min';
+  } else {
+    ui.period.textContent = '—';
+  }
+}
+
+// =============================================================================
+// CANVAS RENDERER — top-down orbital map
+// =============================================================================
+const ctx = ui.canvas.getContext('2d');
+let dpr = Math.max(1, window.devicePixelRatio || 1);
+
+function resize() {
+  dpr = Math.max(1, window.devicePixelRatio || 1);
+  ui.canvas.width  = window.innerWidth  * dpr;
+  ui.canvas.height = window.innerHeight * dpr;
+  ui.canvas.style.width  = window.innerWidth + 'px';
+  ui.canvas.style.height = window.innerHeight + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+// View target — auto-zoom to fit relevant bodies
+function updateView() {
+  const earthOnly = ['LEO','HEO_BURN','ENTRY','SPLASHDOWN'];
+  const sd = Math.hypot(sim.r[0], sim.r[1]);
+  let target, targetCenter;
+
+  if (sim.phase === 'PRELAUNCH' || sim.phase === 'LAUNCH') {
+    // Liftoff: keep camera centered on the spacecraft so the rocket is
+    // always visible, and zoom out gradually as altitude grows.
+    const alt = Math.max(0, sd - C.RE);
+    target = Math.max(50, Math.min(C.RE * 6, alt * 6 + 100));
+    targetCenter = [sim.r[0], sim.r[1]];
+  } else if (sim.phase === 'LUNAR_SOI') {
+    const m = moonPos(sim.met);
+    const dm = Math.hypot(sim.r[0]-m[0], sim.r[1]-m[1]);
+    target = Math.max(C.RSOI * 1.4, dm * 1.5, C.RM * 30);
+    targetCenter = m;
+  } else if (earthOnly.indexOf(sim.phase) >= 0) {
+    target = Math.max(sd * 1.6, C.RE * 6);
+    targetCenter = [0, 0];
+  } else if (sim.phase === 'HEO' || sim.phase === 'TLI_BURN') {
+    target = Math.max(sd * 1.4, C.HEO_RA * 1.1);
+    targetCenter = [0, 0];
+  } else {
+    target = Math.max(sd * 1.3, C.Rmoon * 1.1);
+    targetCenter = [0, 0];
+  }
+
+  sim.view.targetHalf   = target;
+  sim.view.targetCenter = targetCenter;
+
+  const k = 0.04;
+  sim.view.halfWidth += (sim.view.targetHalf - sim.view.halfWidth) * k;
+  // For LUNAR_SOI, snap center to moon to avoid lerp lag against the moving target.
+  if (sim.phase === 'LUNAR_SOI') {
+    sim.view.center[0] = sim.view.targetCenter[0];
+    sim.view.center[1] = sim.view.targetCenter[1];
+  } else {
+    sim.view.center[0] += (sim.view.targetCenter[0] - sim.view.center[0]) * k;
+    sim.view.center[1] += (sim.view.targetCenter[1] - sim.view.center[1]) * k;
+  }
+}
+
+function viewCenter() {
+  return sim.view.center;
+}
+
+function worldToScreen(p) {
+  const w = ui.canvas.width, h = ui.canvas.height;
+  const half = sim.view.halfWidth;
+  const c = viewCenter();
+  const minDim = Math.min(w, h);
+  const scale = (minDim/2) / half;
+  return [
+    w/2 + (p[0] - c[0]) * scale,
+    h/2 - (p[1] - c[1]) * scale,
+  ];
+}
+function worldRadius(km) {
+  const minDim = Math.min(ui.canvas.width, ui.canvas.height);
+  return (minDim/2) * km / sim.view.halfWidth;
+}
+
+function drawStars() {
+  // Cheap parallax starfield seeded from canvas size
+  ctx.save();
+  const w = ui.canvas.width, h = ui.canvas.height;
+  if (!drawStars.cache || drawStars.cache.w !== w || drawStars.cache.h !== h) {
+    const stars = [];
+    let s = 1;
+    function rnd() { s = (s*1664525 + 1013904223) >>> 0; return s / 0xffffffff; }
+    s = 12345;
+    const N = Math.floor((w*h)/(15000*dpr*dpr));
+    for (let i = 0; i < N; i++) {
+      stars.push([rnd()*w, rnd()*h, rnd()*1.6+0.2, rnd()*0.6+0.2]);
+    }
+    drawStars.cache = { w, h, stars };
+  }
+  for (const [x,y,r,a] of drawStars.cache.stars) {
+    ctx.fillStyle = `rgba(200,220,240,${a})`;
+    ctx.fillRect(x, y, r, r);
+  }
+  ctx.restore();
+}
+
+function drawEarth() {
+  const c = worldToScreen([0, 0]);
+  const rPx = Math.max(2, worldRadius(C.RE));
+  // Atmosphere glow
+  const grad = ctx.createRadialGradient(c[0], c[1], rPx*0.95, c[0], c[1], rPx*1.6);
+  grad.addColorStop(0, 'rgba(110,180,255,0.45)');
+  grad.addColorStop(0.5, 'rgba(60,120,200,0.10)');
+  grad.addColorStop(1, 'rgba(20,40,80,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(c[0], c[1], rPx*1.6, 0, Math.PI*2);
+  ctx.fill();
+  // Body
+  const bodyGrad = ctx.createRadialGradient(c[0]-rPx*0.3, c[1]-rPx*0.3, rPx*0.1, c[0], c[1], rPx);
+  bodyGrad.addColorStop(0, '#2c5b8c');
+  bodyGrad.addColorStop(0.6, '#13314f');
+  bodyGrad.addColorStop(1, '#06121f');
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.arc(c[0], c[1], rPx, 0, Math.PI*2);
+  ctx.fill();
+  // Rim
+  ctx.strokeStyle = 'rgba(120,180,240,0.5)';
+  ctx.lineWidth = 1*dpr;
+  ctx.beginPath();
+  ctx.arc(c[0], c[1], rPx, 0, Math.PI*2);
+  ctx.stroke();
+
+  // Entry interface ring
+  if (worldRadius(C.RE + C.ATM) - rPx > 3) {
+    ctx.strokeStyle = 'rgba(255,80,80,0.18)';
+    ctx.setLineDash([4*dpr, 6*dpr]);
+    ctx.beginPath();
+    ctx.arc(c[0], c[1], worldRadius(C.RE + C.ATM), 0, Math.PI*2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function drawMoonOrbit() {
+  if (sim.phase === 'LUNAR_SOI') return;
+  const c = worldToScreen([0,0]);
+  const rPx = worldRadius(C.Rmoon);
+  if (rPx < 30 || rPx > 8000) return;
+  ctx.strokeStyle = 'rgba(120,140,170,0.18)';
+  ctx.setLineDash([2*dpr, 6*dpr]);
+  ctx.lineWidth = 1*dpr;
+  ctx.beginPath();
+  ctx.arc(c[0], c[1], rPx, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawMoon() {
+  const m = moonPos(sim.met);
+  const c = worldToScreen(m);
+  const rPx = Math.max(2, worldRadius(C.RM));
+  // SOI ring
+  const soiPx = worldRadius(C.RSOI);
+  if (soiPx > 8) {
+    ctx.strokeStyle = 'rgba(180,150,255,0.20)';
+    ctx.setLineDash([3*dpr, 5*dpr]);
+    ctx.lineWidth = 1*dpr;
+    ctx.beginPath();
+    ctx.arc(c[0], c[1], soiPx, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // Body
+  const bodyGrad = ctx.createRadialGradient(c[0]-rPx*0.3, c[1]-rPx*0.3, rPx*0.1, c[0], c[1], rPx);
+  bodyGrad.addColorStop(0, '#c8c2b8');
+  bodyGrad.addColorStop(0.6, '#7a7468');
+  bodyGrad.addColorStop(1, '#2a2620');
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.arc(c[0], c[1], rPx, 0, Math.PI*2);
+  ctx.fill();
+  // Rim
+  ctx.strokeStyle = 'rgba(220,210,200,0.35)';
+  ctx.lineWidth = 1*dpr;
+  ctx.beginPath();
+  ctx.arc(c[0], c[1], rPx, 0, Math.PI*2);
+  ctx.stroke();
+}
+
+function drawTrail() {
+  if (sim.trail.length < 2) return;
+  ctx.lineWidth = 1.6*dpr;
+  let last = null;
+  let lastPhase = null;
+  for (let i = 0; i < sim.trail.length; i++) {
+    const p = sim.trail[i];
+    const sp = worldToScreen([p.x, p.y]);
+    if (last && p.phase === lastPhase) {
+      ctx.strokeStyle = PHASE_COLOR[p.phase] || '#888';
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.moveTo(last[0], last[1]);
+      ctx.lineTo(sp[0], sp[1]);
+      ctx.stroke();
+    } else if (last) {
+      // Connect across phase boundaries with the new phase color
+      ctx.strokeStyle = PHASE_COLOR[p.phase] || '#888';
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.moveTo(last[0], last[1]);
+      ctx.lineTo(sp[0], sp[1]);
+      ctx.stroke();
+    }
+    last = sp;
+    lastPhase = p.phase;
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawSpacecraft() {
+  const sp = worldToScreen(sim.r);
+  const color = PHASE_COLOR[sim.phase] || '#fff';
+  // Glow
+  const glow = ctx.createRadialGradient(sp[0], sp[1], 0, sp[0], sp[1], 14*dpr);
+  glow.addColorStop(0, color);
+  glow.addColorStop(0.4, color + '88');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(sp[0], sp[1], 14*dpr, 0, Math.PI*2);
+  ctx.fill();
+  // Core
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(sp[0], sp[1], 3*dpr, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5*dpr;
+  ctx.beginPath();
+  ctx.arc(sp[0], sp[1], 4.5*dpr, 0, Math.PI*2);
+  ctx.stroke();
+
+  // Thrust plume during burn
+  if (sim.burning && sim.thrustNow > 0) {
+    const dir = sim.burnDir;
+    const back = [-dir[0], -dir[1]];
+    const len = 18*dpr;
+    ctx.strokeStyle = '#ffcc66';
+    ctx.lineWidth = 2.5*dpr;
+    ctx.beginPath();
+    ctx.moveTo(sp[0], sp[1]);
+    ctx.lineTo(sp[0] + back[0]*len, sp[1] - back[1]*len);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,160,40,0.5)';
+    ctx.lineWidth = 5*dpr;
+    ctx.beginPath();
+    ctx.moveTo(sp[0], sp[1]);
+    ctx.lineTo(sp[0] + back[0]*len*1.4, sp[1] - back[1]*len*1.4);
+    ctx.stroke();
+  }
+}
+
+function drawScale() {
+  // Distance scale bar (km) at lower-left
+  const half = sim.view.halfWidth;
+  // Pick a "nice" scale length ~ 1/4 of half-width
+  const target = half * 0.5;
+  const exp = Math.floor(Math.log10(target));
+  const m = target / Math.pow(10, exp);
+  const nice = m >= 5 ? 5 : m >= 2 ? 2 : 1;
+  const km = nice * Math.pow(10, exp);
+  const px = worldRadius(km);
+  const x0 = 22*dpr, y0 = ui.canvas.height - 22*dpr;
+  ctx.strokeStyle = 'rgba(180,200,220,0.5)';
+  ctx.lineWidth = 1.5*dpr;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0); ctx.lineTo(x0 + px, y0);
+  ctx.moveTo(x0, y0-4*dpr); ctx.lineTo(x0, y0+4*dpr);
+  ctx.moveTo(x0+px, y0-4*dpr); ctx.lineTo(x0+px, y0+4*dpr);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(180,200,220,0.7)';
+  ctx.font = `${10*dpr}px Roboto Mono, monospace`;
+  const label = km >= 1000 ? `${(km/1000).toFixed(0)} 000 km` : `${km} km`;
+  ctx.fillText(label, x0 + 6*dpr, y0 - 6*dpr);
+}
+
+function render() {
+  ctx.fillStyle = '#02060a';
+  ctx.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
+  drawStars();
+  updateView();
+  drawMoonOrbit();
+  drawTrail();
+  drawEarth();
+  drawMoon();
+  drawSpacecraft();
+  drawScale();
+}
+
+// =============================================================================
+// MAIN LOOP
+// =============================================================================
+let lastTime = performance.now();
+function frame(now) {
+  let dt = (now - lastTime) / 1000;
+  lastTime = now;
+  if (dt > 0.1) dt = 0.1;            // clamp tab-switch jumps
+  simStep(dt);
+  updateTelemetry();
+  render();
+  requestAnimationFrame(frame);
+}
+
+// =============================================================================
+// BOOT
+// =============================================================================
+sim = freshSim();
+addLog('SYSTEMS NOMINAL · STANDING BY');
+requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
