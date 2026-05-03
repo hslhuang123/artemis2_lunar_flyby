@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>ARTEMIS II - Lunar Flyby Simulator</title>
+<title>ARTEMIS II - Lunar Flyby Simulator by 時力</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -345,7 +345,7 @@
 <body>
   <canvas id="view"></canvas>
 
-  <div id="brand"><strong>ARTEMIS II</strong> &nbsp;-&nbsp; <span class="sub">LUNAR FLYBY SIMULATOR</span></div>
+  <div id="brand"><strong>ARTEMIS II</strong> &nbsp;-&nbsp; <span class="sub">LUNAR FLYBY SIMULATOR by 時力</span></div>
 
   <div id="telemetry" class="panel">
     <h2>TELEMETRY</h2>
@@ -353,10 +353,6 @@
     <div class="row"><span class="label">ALTITUDE</span><span class="value" id="t-alt">0 km</span></div>
     <div class="row"><span class="label">VELOCITY</span><span class="value" id="t-vel">0 m/s</span></div>
     <div class="row"><span class="label">V-RAD / V-TAN</span><span class="value" id="t-vrt">0 / 0</span></div>
-    <div class="row"><span class="label">G-FORCE</span><span class="value" id="t-g">0.00 g</span></div>
-    <div class="row"><span class="label">THRUST</span><span class="value" id="t-thrust">0 kN</span></div>
-    <div class="row"><span class="label">MASS</span><span class="value" id="t-mass">0 t</span></div>
-    <div class="row"><span class="label">FUEL (STAGE)</span><span class="value" id="t-fuel">0%</span></div>
   </div>
 
   <div id="status" class="panel">
@@ -457,6 +453,48 @@ const PHASE_COLOR = {
   SPLASHDOWN:  '#ffffff',
 };
 
+// Per-stage flame palette: layered cones from outer (smoky) to inner (white-hot).
+// `len`/`width` are base pixel sizes (×dpr at draw time); `lenK`/`widthK` are
+// per-layer multipliers; `flick` is the per-frame jitter amplitude.
+const STAGE_FLAME = [
+  { // 0 — SRB + CORE: long, bright, smoky orange halo (solid + LH2/LOX combined)
+    len: 26, width: 5.0,
+    layers: [
+      { lenK: 1.35, widthK: 2.7, color: 'rgba(120, 40, 20, 0.40)' },
+      { lenK: 1.20, widthK: 1.8, color: 'rgba(255, 130, 40, 0.55)' },
+      { lenK: 1.00, widthK: 1.0, color: 'rgba(255, 215, 90, 0.85)' },
+      { lenK: 0.70, widthK: 0.5, color: 'rgba(255, 255, 230, 0.95)' },
+    ],
+  },
+  { // 1 — CORE only (4× RS-25 hydrolox): cleaner, slightly cooler, still bright
+    len: 22, width: 4.2,
+    layers: [
+      { lenK: 1.25, widthK: 2.3, color: 'rgba(140, 60, 30, 0.32)' },
+      { lenK: 1.10, widthK: 1.5, color: 'rgba(255, 150, 70, 0.50)' },
+      { lenK: 0.95, widthK: 0.9, color: 'rgba(255, 225, 150, 0.85)' },
+      { lenK: 0.70, widthK: 0.45, color: 'rgba(240, 255, 255, 0.95)' },
+    ],
+  },
+  { // 2 — ICPS (RL10 hydrolox): cool blue-violet, very clean
+    len: 18, width: 3.0,
+    layers: [
+      { lenK: 1.20, widthK: 2.0, color: 'rgba(80, 70, 180, 0.30)' },
+      { lenK: 1.05, widthK: 1.2, color: 'rgba(140, 180, 255, 0.55)' },
+      { lenK: 0.90, widthK: 0.7, color: 'rgba(190, 220, 255, 0.85)' },
+      { lenK: 0.65, widthK: 0.35, color: 'rgba(245, 250, 255, 0.95)' },
+    ],
+  },
+  { // 3 — Service Module (hypergolic): small pinkish-red
+    len: 14, width: 2.5,
+    layers: [
+      { lenK: 1.15, widthK: 1.7, color: 'rgba(160, 50, 70, 0.35)' },
+      { lenK: 1.00, widthK: 1.0, color: 'rgba(255, 110, 100, 0.60)' },
+      { lenK: 0.85, widthK: 0.6, color: 'rgba(255, 200, 180, 0.85)' },
+      { lenK: 0.60, widthK: 0.3, color: 'rgba(255, 240, 230, 0.95)' },
+    ],
+  },
+];
+
 // Time-warp slider mapping (index 0..4)
 const WARP_LEVELS = [1, 10, 100, 500, 1000, 2000, 5000, 6667, 10000];
 
@@ -464,7 +502,7 @@ const WARP_LEVELS = [1, 10, 100, 500, 1000, 2000, 5000, 6667, 10000];
 const AUTO_WARP = {
   PRELAUNCH:   100,
   LAUNCH:      100,
-  LEO:         1000,
+  LEO:         500,
   HEO_BURN:    1000,
   HEO:         5000,
   TLI_BURN:    10000,
@@ -519,7 +557,14 @@ function freshSim() {
 
     inSOI:       false,
     splashWall:  0,                  // wall-seconds remaining on splashdown hold
-    tcmApplied:  false,              // post-flyby trajectory correction maneuver fired?
+    tcmApplied:  false,              // post-flyby trajectory correction maneuver targeted?
+    tcmStartMet: 0,                  // MET (s) when the gradual TCM began
+    tcmAppliedFraction: 0,           // 0..1 — fraction of total ΔV already imparted
+    tcmDvX:      0,                  // total ΔV vector to be smeared across the burn (km/s)
+    tcmDvY:      0,
+    verticalDescent: false,          // entry: snapped to radial descent at 100 km?
+    stageFlashAt:0,                  // performance.now() when last stage event fired (0 = none)
+    stageFlashIdx:0,                 // stage that was just jettisoned (drives flash color)
 
     throttle:    1.0,
     warp:        100,
@@ -748,6 +793,8 @@ function launchUpdate(dt) {
     sim.massTotal = STAGES[1].mass;
     sim.stageFuel = STAGES[1].fuel;
     sim.stageFuel0 = STAGES[1].fuel;
+    sim.stageFlashAt = performance.now();
+    sim.stageFlashIdx = 0;
     addLog('SRB SEPARATION');
   }
   if (sim.met >= 478 && sim.stageIdx === 1) {
@@ -756,6 +803,8 @@ function launchUpdate(dt) {
     sim.massTotal = STAGES[2].mass;
     sim.stageFuel = STAGES[2].fuel;
     sim.stageFuel0 = STAGES[2].fuel;
+    sim.stageFlashAt = performance.now();
+    sim.stageFlashIdx = 1;
     addLog('MAIN ENGINE CUT-OFF · CORE STAGE SEPARATION');
     addLog('ICPS IGNITION · CIRCULARIZATION BURN');
   }
@@ -876,7 +925,7 @@ function leoUpdate() {
       const vT = Math.sqrt(C.muE * (2/r - 1/aT));
       const dV = vT - Math.hypot(sim.v[0], sim.v[1]);
       setPhase('HEO_BURN');
-      applyImpulseBurn(dV, 6, `HEO INSERTION BURN · ICPS · ΔV ${(dV*1000).toFixed(0)} m/s`);
+      applyImpulseBurn(dV, 10, `HEO INSERTION BURN · ICPS · ΔV ${(dV*1000).toFixed(0)} m/s`);
     }
   }
 }
@@ -903,7 +952,7 @@ function heoUpdate() {
       // Align Moon BEFORE TLI Δv is applied (uses current rp for ellipse)
       alignMoonForFlyby();
       setPhase('TLI_BURN');
-      applyImpulseBurn(dV, 4, `TLI BURN · ICPS RE-IGNITION · ΔV ${(dV*1000).toFixed(0)} m/s`);
+      applyImpulseBurn(dV, 6, `TLI BURN · ICPS RE-IGNITION · ΔV ${(dV*1000).toFixed(0)} m/s`);
     }
   }
 }
@@ -918,6 +967,8 @@ function tliBurnUpdate() {
     sim.massTotal = STAGES[3].mass;
     sim.stageFuel = STAGES[3].fuel;
     sim.stageFuel0 = STAGES[3].fuel;
+    sim.stageFlashAt = performance.now();
+    sim.stageFlashIdx = 2;
     setPhase('TRANSLUNAR', 'TRANSLUNAR COAST · 4.5-day cruise to lunar SOI');
   }
 }
@@ -948,9 +999,13 @@ function lunarSOIUpdate() {
 
 // Inbound trajectory correction. Builds a return ellipse that has the current
 // post-flyby position as apoapsis and the desired entry-interface point as
-// periapsis, then sets velocity to the vis-viva value tangent to that ellipse.
+// periapsis, then targets the vis-viva velocity tangent to that ellipse.
 // (Real-mission analogue: the inbound TCMs in Table 3 of the paper, lumped.)
-function applyReturnTCM() {
+// The ΔV is smeared across TCM_BURN_SIM_SEC of simulated time (smoothstepped)
+// so the post-flyby trajectory eases onto the return ellipse without a kink.
+const TCM_BURN_SIM_SEC = 14400;        // 4 simulated hours
+
+function planReturnTCM() {
   const r = sim.r;
   const rmag = Math.hypot(r[0], r[1]);
   const targetRp = C.RE - 30;          // slightly below surface ⇒ guaranteed entry
@@ -960,15 +1015,28 @@ function applyReturnTCM() {
   const tHat = v2.perp(v2.norm(r));    // CCW tangent
   const sign = v2.dot(tHat, sim.v) >= 0 ? 1 : -1;   // preserve prograde sense
   const newV = [tHat[0]*vmag*sign, tHat[1]*vmag*sign];
-  const dv = Math.hypot(newV[0]-sim.v[0], newV[1]-sim.v[1]);
-  sim.v = newV;
+  sim.tcmDvX = newV[0] - sim.v[0];
+  sim.tcmDvY = newV[1] - sim.v[1];
+  sim.tcmStartMet = sim.met;
+  sim.tcmAppliedFraction = 0;
+  const dv = Math.hypot(sim.tcmDvX, sim.tcmDvY);
   addLog(`TCM · INBOUND TARGETING · ΔV ${(dv*1000).toFixed(0)} m/s`);
 }
 
 function transearthUpdate() {
   if (!sim.tcmApplied) {
     sim.tcmApplied = true;
-    applyReturnTCM();
+    planReturnTCM();
+  }
+  if (sim.tcmAppliedFraction < 1) {
+    const elapsed = sim.met - sim.tcmStartMet;
+    const f = Math.max(0, Math.min(1, elapsed / TCM_BURN_SIM_SEC));
+    const s = f * f * (3 - 2 * f);                  // smoothstep weighting
+    const delta = s - sim.tcmAppliedFraction;
+    sim.v[0] += sim.tcmDvX * delta;
+    sim.v[1] += sim.tcmDvY * delta;
+    sim.tcmAppliedFraction = s;
+    if (f >= 1) sim.tcmAppliedFraction = 1;
   }
   const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
   if (alt < 10000) {
@@ -979,6 +1047,43 @@ function transearthUpdate() {
 
 function entryUpdate() {
   const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
+  // Across the full atmospheric descent, slerp the velocity direction toward
+  // radially inward so the trajectory eases into vertical descent without a
+  // sharp corner. The window spans entry interface down to parachute regime;
+  // below BOT, gravity + drag carry the now-fully-radial capsule to the surface.
+  const TOP = 200, BOT = 8;
+  if (alt <= TOP && alt > BOT) {
+    const speed = v2.mag(sim.v);
+    if (speed > 1e-9) {
+      let t = (TOP - alt) / (TOP - BOT);
+      t = t * t * (3 - 2 * t);                       // smoothstep
+      const vhat = v2.scale(sim.v, 1 / speed);
+      const rhat = v2.norm(sim.r);
+      // Slerp from current velocity direction toward -rhat (inward radial).
+      const dxn = -rhat[0], dyn = -rhat[1];
+      const dot = Math.max(-1, Math.min(1, vhat[0]*dxn + vhat[1]*dyn));
+      const theta = Math.acos(dot);
+      let nx, ny;
+      if (theta < 1e-4) {
+        nx = vhat[0] * (1 - t) + dxn * t;
+        ny = vhat[1] * (1 - t) + dyn * t;
+      } else {
+        const sinT = Math.sin(theta);
+        const w1 = Math.sin((1 - t) * theta) / sinT;
+        const w2 = Math.sin(t * theta) / sinT;
+        nx = vhat[0] * w1 + dxn * w2;
+        ny = vhat[1] * w1 + dyn * w2;
+      }
+      const m = Math.hypot(nx, ny) || 1;
+      sim.v = [(nx / m) * speed, (ny / m) * speed];
+    }
+  } else if (!sim.verticalDescent && alt <= BOT) {
+    const speed = v2.mag(sim.v);
+    const rhat = v2.norm(sim.r);
+    sim.v = [-rhat[0] * speed, -rhat[1] * speed];
+    sim.verticalDescent = true;
+    addLog(`VERTICAL DESCENT · ALT ${alt.toFixed(1)} km · v ${(speed*1000).toFixed(0)} m/s`);
+  }
   if (alt <= 0) {
     const rhat = v2.norm(sim.r);
     sim.r = [rhat[0]*C.RE, rhat[1]*C.RE];
@@ -1139,10 +1244,6 @@ const ui = {
   alt:      document.getElementById('t-alt'),
   vel:      document.getElementById('t-vel'),
   vrt:      document.getElementById('t-vrt'),
-  g:        document.getElementById('t-g'),
-  thrust:   document.getElementById('t-thrust'),
-  mass:     document.getElementById('t-mass'),
-  fuel:     document.getElementById('t-fuel'),
   phase:    document.getElementById('phase-name'),
   stage:    document.getElementById('t-stage'),
   warpDisp: document.getElementById('t-warp'),
@@ -1176,6 +1277,11 @@ ui.action.addEventListener('click', () => {
     sim.lastTrueAnomalySign = 0;
     setPhase('LAUNCH', 'IGNITION · SLS BLOCK 1 LIFT-OFF');
     ui.action.style.display = 'none';
+    // On mobile, collapse the FLIGHT CONTROL panel after launch to free
+    // up screen space — user can tap the header to re-expand it.
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      ui.controls.classList.add('collapsed');
+    }
     updateLogPosition();
   }
 });
@@ -1216,6 +1322,7 @@ function fullReset(autorestart) {
   sim.autoWarpEnabled = true;
   ui.logEntries.innerHTML = '';
   ui.action.style.display = '';
+  ui.controls.classList.remove('collapsed');
   ui.pause.textContent = 'PAUSE';
   addLog('SYSTEMS NOMINAL · STANDING BY');
   if (autorestart) {
@@ -1223,6 +1330,9 @@ function fullReset(autorestart) {
     sim.lastTrueAnomalySign = 0;
     setPhase('LAUNCH', 'IGNITION · SLS BLOCK 1 LIFT-OFF');
     ui.action.style.display = 'none';
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      ui.controls.classList.add('collapsed');
+    }
   }
   updateLogPosition();
 }
@@ -1246,25 +1356,6 @@ function updateTelemetry() {
   const vrad = v2.dot(sim.v, rhat) * 1000;   // m/s
   const vtan = v2.dot(sim.v, that) * 1000;
   ui.vrt.textContent = `${vrad.toFixed(0)} / ${vtan.toFixed(0)}`;
-
-  // G-force during burns/atmosphere; in pure free-fall report 0g
-  const gAccel = sim.thrustNow > 0
-    ? (sim.thrustNow * sim.throttle) / sim.massTotal / 9.80665   // kN/t = m/s^2
-    : 0;
-  // Add drag g-force during entry
-  let gTotal = gAccel;
-  if (sim.phase === 'ENTRY') {
-    const d = dragAt(sim.r, sim.v);
-    gTotal = Math.hypot(d[0], d[1]) * 1000 / 9.80665 + gAccel;
-  }
-  ui.g.textContent = gTotal.toFixed(2) + ' g';
-  ui.g.className = 'value' + (gTotal > 4 ? ' crit' : gTotal > 2 ? ' warn' : '');
-
-  ui.thrust.textContent = sim.thrustNow.toFixed(0) + ' kN';
-  ui.mass.textContent = sim.massTotal.toFixed(1) + ' t';
-  const fuelPct = sim.stageFuel0 > 0 ? Math.max(0, 100 * sim.stageFuel / sim.stageFuel0) : 0;
-  ui.fuel.textContent = fuelPct.toFixed(0) + '%';
-  ui.fuel.className = 'value' + (fuelPct < 10 ? ' crit' : fuelPct < 30 ? ' warn' : '');
 
   ui.phase.textContent = PHASE_LABEL[sim.phase];
   ui.phase.style.color = PHASE_COLOR[sim.phase];
@@ -1387,6 +1478,75 @@ function worldToScreen(p) {
 function worldRadius(km) {
   const minDim = Math.min(ui.canvas.width, ui.canvas.height);
   return (minDim/2) * km / sim.view.halfWidth;
+}
+
+function drawGalaxies() {
+  // Deep-space nebulae / galaxy clouds — soft elliptical radial gradients
+  // tinted with cool/warm hues. Cached per canvas size so positions stay put.
+  const w = ui.canvas.width, h = ui.canvas.height;
+  if (!drawGalaxies.cache || drawGalaxies.cache.w !== w || drawGalaxies.cache.h !== h) {
+    let s = 0xC0FFEE;
+    function rnd() { s = (s*1664525 + 1013904223) >>> 0; return s / 0xffffffff; }
+    const palette = [
+      ['rgba(140, 90, 200, 0.55)',  'rgba(60, 30, 120, 0.18)'],   // violet
+      ['rgba(80, 160, 220, 0.50)',  'rgba(20, 60, 110, 0.16)'],   // cyan-blue
+      ['rgba(220, 110, 160, 0.45)', 'rgba(110, 30, 80, 0.14)'],   // pink
+      ['rgba(255, 200, 140, 0.40)', 'rgba(120, 70, 30, 0.12)'],   // amber
+      ['rgba(120, 200, 180, 0.40)', 'rgba(40, 90, 80, 0.12)'],    // teal
+    ];
+    const N = 5;
+    const galaxies = [];
+    for (let i = 0; i < N; i++) {
+      const cx = rnd() * w;
+      const cy = rnd() * h;
+      const radius = (Math.min(w, h) * (0.18 + rnd() * 0.22));
+      const stretch = 0.45 + rnd() * 0.5;     // ellipse aspect ratio
+      const angle = rnd() * Math.PI;
+      const colors = palette[i % palette.length];
+      galaxies.push({ cx, cy, radius, stretch, angle, inner: colors[0], outer: colors[1] });
+    }
+    // Tiny bright "core stars" peppered inside each galaxy
+    const cores = [];
+    for (const g of galaxies) {
+      const k = 14 + Math.floor(rnd() * 10);
+      for (let j = 0; j < k; j++) {
+        const t = rnd() * Math.PI * 2;
+        const rr = Math.pow(rnd(), 1.5) * g.radius * 0.55;
+        const lx = Math.cos(t) * rr;
+        const ly = Math.sin(t) * rr * g.stretch;
+        const ca = Math.cos(g.angle), sa = Math.sin(g.angle);
+        cores.push([
+          g.cx + lx * ca - ly * sa,
+          g.cy + lx * sa + ly * ca,
+          rnd() * 1.4 + 0.4,
+          0.4 + rnd() * 0.4,
+        ]);
+      }
+    }
+    drawGalaxies.cache = { w, h, galaxies, cores };
+  }
+
+  ctx.save();
+  for (const g of drawGalaxies.cache.galaxies) {
+    ctx.save();
+    ctx.translate(g.cx, g.cy);
+    ctx.rotate(g.angle);
+    ctx.scale(1, g.stretch);
+    const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, g.radius);
+    grd.addColorStop(0, g.inner);
+    grd.addColorStop(0.5, g.outer);
+    grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(0, 0, g.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  for (const [x, y, r, a] of drawGalaxies.cache.cores) {
+    ctx.fillStyle = `rgba(255, 240, 220, ${a})`;
+    ctx.fillRect(x, y, r, r);
+  }
+  ctx.restore();
 }
 
 function drawStars() {
@@ -1529,43 +1689,123 @@ function drawTrail() {
 function drawSpacecraft() {
   const sp = worldToScreen(sim.r);
   const color = PHASE_COLOR[sim.phase] || '#fff';
-  // Glow
-  const glow = ctx.createRadialGradient(sp[0], sp[1], 0, sp[0], sp[1], 14*dpr);
-  glow.addColorStop(0, color);
-  glow.addColorStop(0.4, color + '88');
-  glow.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(sp[0], sp[1], 14*dpr, 0, Math.PI*2);
-  ctx.fill();
-  // Core
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(sp[0], sp[1], 3*dpr, 0, Math.PI*2);
-  ctx.fill();
+
+  // Heading angle in screen-space radians.
+  // PRELAUNCH/LAUNCH: follow burnDir — it's continuously updated by the
+  // gravity-turn pitch program, and v=0 on the pad. Every other phase
+  // (including HEO_BURN/TLI_BURN/TCM, where burnDir is captured once at
+  // impulse-burn start and goes stale as the spacecraft orbits forward):
+  // align with the current velocity vector so the rocket follows the
+  // trajectory it's actually flying.
+  let ang;
+  const burning = sim.burning && sim.thrustNow > 0;
+  if (sim.phase === 'PRELAUNCH' || sim.phase === 'LAUNCH') {
+    ang = Math.atan2(-sim.burnDir[1], sim.burnDir[0]);
+  } else {
+    const vmag = Math.hypot(sim.v[0], sim.v[1]);
+    if (vmag > 1e-6) {
+      ang = Math.atan2(-sim.v[1], sim.v[0]);
+    } else {
+      const rmag = Math.hypot(sim.r[0], sim.r[1]);
+      ang = Math.atan2(-sim.r[1] / rmag, sim.r[0] / rmag);
+    }
+  }
+
+  ctx.save();
+  ctx.translate(sp[0], sp[1]);
+  ctx.rotate(ang);
+  ctx.scale(dpr, dpr);   // local geometry in CSS pixels, scaled to device px
+
+  // Exhaust plume — linear-gradient triangle along the rocket's -x axis.
+  // Renders for any thrusting phase (LAUNCH, HEO_BURN, TLI_BURN). For the
+  // impulsive HEO/TLI burns, sim.thrustNow may briefly drop to 0 once the
+  // cosmetic burn timer expires; fall back to the active stage's nominal
+  // thrust so the flame stays visible for the whole phase.
+  const burnPhase =
+       sim.phase === 'LAUNCH'
+    || sim.phase === 'HEO_BURN'
+    || sim.phase === 'TLI_BURN';
+  if (burning || burnPhase) {
+    const stage = STAGES[sim.stageIdx];
+    const thrust = sim.thrustNow > 0
+      ? sim.thrustNow
+      : (stage ? stage.thrust * sim.throttle : 0);
+    const plume = 20 + Math.min(28, thrust / 1500);
+    const grd = ctx.createLinearGradient(-plume, 0, -2, 0);
+    grd.addColorStop(0, 'rgba(255, 130, 60, 0)');
+    grd.addColorStop(0.5, 'rgba(255, 180, 80, 0.6)');
+    grd.addColorStop(1, 'rgba(255, 240, 200, 0.95)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.moveTo(-2, -4.5);
+    ctx.lineTo(-plume, 0);
+    ctx.lineTo(-2, 4.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Rocket body — arrow / kite shape pointing along +x (nose forward).
+  ctx.fillStyle = '#e8eef5';
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5*dpr;
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.arc(sp[0], sp[1], 4.5*dpr, 0, Math.PI*2);
+  ctx.moveTo(8, 0);
+  ctx.lineTo(-5, -4);
+  ctx.lineTo(-3, 0);
+  ctx.lineTo(-5, 4);
+  ctx.closePath();
+  ctx.fill();
   ctx.stroke();
 
-  // Thrust plume during burn
-  if (sim.burning && sim.thrustNow > 0) {
-    const dir = sim.burnDir;
-    const back = [-dir[0], -dir[1]];
-    const len = 18*dpr;
-    ctx.strokeStyle = '#ffcc66';
-    ctx.lineWidth = 2.5*dpr;
-    ctx.beginPath();
-    ctx.moveTo(sp[0], sp[1]);
-    ctx.lineTo(sp[0] + back[0]*len, sp[1] - back[1]*len);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,160,40,0.5)';
-    ctx.lineWidth = 5*dpr;
-    ctx.beginPath();
-    ctx.moveTo(sp[0], sp[1]);
-    ctx.lineTo(sp[0] + back[0]*len*1.4, sp[1] - back[1]*len*1.4);
-    ctx.stroke();
+  ctx.restore();
+
+  // Stage-separation flash: brief expanding ring + radial sparks for ~700 ms
+  // after a staging event. Composited additively so it reads as a pyrotechnic
+  // pop on top of whatever else is rendered.
+  if (sim.stageFlashAt > 0) {
+    const age = (performance.now() - sim.stageFlashAt) / 1000;
+    const DUR = 0.7;
+    if (age < DUR) {
+      const u = age / DUR;
+      const ease = 1 - (1 - u) * (1 - u);     // ease-out
+      const palette = STAGE_FLAME[sim.stageFlashIdx] || STAGE_FLAME[0];
+      // Tint the flash with the second layer color of the just-jettisoned stage
+      const ringColor = palette.layers[1].color.replace(/[\d.]+\)$/, `${(1 - u) * 0.85})`);
+      const sparkColor = palette.layers[2].color.replace(/[\d.]+\)$/, `${(1 - u) * 0.95})`);
+      const radius = (6 + ease * 26) * dpr;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      // Outer expanding ring
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = (3 - 2 * u) * dpr;
+      ctx.beginPath();
+      ctx.arc(sp[0], sp[1], radius, 0, Math.PI * 2);
+      ctx.stroke();
+      // Bright core puff
+      const puff = ctx.createRadialGradient(sp[0], sp[1], 0, sp[0], sp[1], radius * 0.7);
+      puff.addColorStop(0, palette.layers[3].color.replace(/[\d.]+\)$/, `${(1 - u) * 0.9})`));
+      puff.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = puff;
+      ctx.beginPath();
+      ctx.arc(sp[0], sp[1], radius * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      // Outward sparks
+      const N = 8;
+      ctx.strokeStyle = sparkColor;
+      ctx.lineWidth = 1.4 * dpr;
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2 + sim.stageFlashAt * 0.0007;
+        const r0 = radius * 0.45;
+        const r1 = radius * (0.95 + 0.2 * Math.sin(i * 13.7));
+        ctx.beginPath();
+        ctx.moveTo(sp[0] + Math.cos(a) * r0, sp[1] + Math.sin(a) * r0);
+        ctx.lineTo(sp[0] + Math.cos(a) * r1, sp[1] + Math.sin(a) * r1);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else {
+      sim.stageFlashAt = 0;
+    }
   }
 }
 
@@ -1596,6 +1836,7 @@ function drawScale() {
 function render() {
   ctx.fillStyle = '#02060a';
   ctx.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
+  drawGalaxies();
   drawStars();
   updateView();
   drawMoonOrbit();
