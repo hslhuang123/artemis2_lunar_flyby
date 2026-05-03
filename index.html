@@ -562,7 +562,16 @@ function freshSim() {
     tcmAppliedFraction: 0,           // 0..1 — fraction of total ΔV already imparted
     tcmDvX:      0,                  // total ΔV vector to be smeared across the burn (km/s)
     tcmDvY:      0,
-    verticalDescent: false,          // entry: snapped to radial descent at 100 km?
+    // Entry interface tracking (Apr-2026 Artemis II spec):
+    // EI at 400,000 ft (122 km) @ 24,000 mph (10.728 km/s), FPA ≈ -6.5°,
+    // ~14 min and ~3138 km downrange to splashdown.
+    eiCrossed:        false,         // snapped to spec EI conditions yet?
+    eiMet:            0,             // MET (s) at entry interface
+    eiPosAng:         0,             // inertial angle of position at EI (rad)
+    eiDownrange:      0,             // great-circle distance from EI (km)
+    maxG:             0,             // peak deceleration during entry (g)
+    drogueDeployed:   false,
+    mainsDeployed:    false,
     stageFlashAt:0,                  // performance.now() when last stage event fired (0 = none)
     stageFlashIdx:0,                 // stage that was just jettisoned (drives flash color)
 
@@ -629,23 +638,63 @@ function gravityAt(r, t) {
   return [ kE*r[0], kE*r[1] ];
 }
 
-// Atmospheric drag (used during ENTRY)
-// Exponential atmosphere: rho = rho0 * exp(-h/H)
+// Atmospheric aero (drag + lift + parachutes), used during ENTRY.
+// Two-region exponential atmosphere — standard scale height to 86 km, then
+// expanded thermospheric scale above. Hypersonic Cd*A for Orion CM, switching
+// to drogue then main parachutes at the published deploy altitudes. Lift
+// component (L/D ≈ 0.27 for Orion CM, lift-up only here) is what gives the
+// long ~3138 km downrange skip-entry profile during the hypersonic phase.
 function dragAt(r, v) {
-  const alt = Math.hypot(r[0], r[1]) - C.RE;
+  const rmag = Math.hypot(r[0], r[1]);
+  const alt = rmag - C.RE;
   if (alt > 200) return [0, 0];
-  const rho0 = 1.225;        // kg/m^3
-  const H = 7.249;           // km scale height
-  const rho = rho0 * Math.exp(-alt / H);
-  // Effective ballistic coefficient for Orion CM (mass ~9.3 t, area ~19.6 m^2, Cd ~1.2)
-  // Orion mass after service-module sep is ~9.3 t but we keep stack mass for simplicity.
-  const Cd = 1.3, A = 19.6, m_kg = sim.massTotal * 1000;
+
+  // Density (kg/m^3): 0–86 km troposphere/stratosphere/mesosphere, then
+  // a fatter scale height through the thermosphere up to 200 km.
+  let rho;
+  if (alt < 86) {
+    rho = 1.225 * Math.exp(-alt / 7.249);
+  } else {
+    const rho86 = 1.225 * Math.exp(-86 / 7.249);
+    rho = rho86 * Math.exp(-(alt - 86) / 25);
+  }
+
   const speed_ms = Math.hypot(v[0], v[1]) * 1000;
-  // drag accel magnitude in m/s^2
-  const aDrag = 0.5 * rho * speed_ms * speed_ms * Cd * A / m_kg;
-  // direction opposite velocity, return in km/s^2
+  if (speed_ms < 0.5) return [0, 0];
+
+  // Orion Crew Module aero — switch to chute config below the published
+  // deploy altitudes. Three mains @ ~36 m diameter ⇒ ~3050 m^2 total.
+  let Cd, A;
+  if (alt < 2.5) {
+    Cd = 0.80;  A = 3050;          // 3 main parachutes
+  } else if (alt < 7) {
+    Cd = 1.50;  A = 80;            // drogue chutes
+  } else {
+    Cd = 1.20;  A = 19.6;          // bare CM, hypersonic
+  }
+  const m_kg = sim.massTotal * 1000;
+
+  const q     = 0.5 * rho * speed_ms * speed_ms;     // dynamic pressure (Pa)
+  const aDrag = q * Cd * A / m_kg;                   // m/s^2
+
+  // Lift-up only (simplification of bank-modulated guidance). Disabled under
+  // chutes and once nearly subsonic.
+  const LD     = (alt > 7 && speed_ms > 250) ? 0.27 : 0;
+  const aLift  = aDrag * LD;
+
   const vhat = v2.norm(v);
-  return [ -vhat[0] * aDrag * 1e-3, -vhat[1] * aDrag * 1e-3 ];
+  const rhat = [r[0] / rmag, r[1] / rmag];
+  // Lift acts perpendicular to velocity; choose the perpendicular with a
+  // positive radial component (lift-up).
+  let lhat = v2.perp(vhat);
+  if (lhat[0]*rhat[0] + lhat[1]*rhat[1] < 0) { lhat = [-lhat[0], -lhat[1]]; }
+
+  const kD = aDrag * 1e-3;          // m/s^2 → km/s^2
+  const kL = aLift * 1e-3;
+  return [
+    -vhat[0] * kD + lhat[0] * kL,
+    -vhat[1] * kD + lhat[1] * kL,
+  ];
 }
 
 function thrustAccelKmS2() {
@@ -1038,59 +1087,94 @@ function transearthUpdate() {
     sim.tcmAppliedFraction = s;
     if (f >= 1) sim.tcmAppliedFraction = 1;
   }
+  // Hand off to ENTRY at the top of the sensible atmosphere (200 km). The
+  // canonical Entry Interface event (400,000 ft / 122 km) is logged inside
+  // entryUpdate, where we also snap to the published EI velocity / FPA.
   const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
-  if (alt < 10000) {
-    addLog(`ENTRY INTERFACE · ALT ${alt.toFixed(0)} km · v ${(v2.mag(sim.v)*1000).toFixed(0)} m/s`);
+  if (alt < 200) {
+    addLog(`ATMOSPHERE · ALT ${alt.toFixed(0)} km · v ${(v2.mag(sim.v)*1000).toFixed(0)} m/s`);
     setPhase('ENTRY');
   }
 }
 
+// ENTRY — physics-driven atmospheric descent.
+//
+// Reference (April 2026 Artemis II re-entry timeline):
+//   • Entry Interface  : 400,000 ft (122 km) altitude, 24,000 mph (10.728 km/s)
+//   • Entry FPA        : ~ -6.5° (steeper than Artemis I, < 1° precision band)
+//   • EI → splashdown  : ~13–14 minutes
+//   • Downrange (EI→S) : ~1,950 mi (3138 km)
+//
+// At EI we snap velocity to the published magnitude/FPA (preserving prograde
+// sense) and drop the stack mass to the bare crew module (~9.3 t — service
+// module jettisoned just before EI). From there the integrator runs free
+// under Earth gravity + the (drag + lift + parachute) aero model in dragAt().
+// Downrange, peak G, and chute deployments are tracked for the splashdown
+// summary.
 function entryUpdate() {
-  const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
-  // Across the full atmospheric descent, slerp the velocity direction toward
-  // radially inward so the trajectory eases into vertical descent without a
-  // sharp corner. The window spans entry interface down to parachute regime;
-  // below BOT, gravity + drag carry the now-fully-radial capsule to the surface.
-  const TOP = 200, BOT = 8;
-  if (alt <= TOP && alt > BOT) {
-    const speed = v2.mag(sim.v);
-    if (speed > 1e-9) {
-      let t = (TOP - alt) / (TOP - BOT);
-      t = t * t * (3 - 2 * t);                       // smoothstep
-      const vhat = v2.scale(sim.v, 1 / speed);
-      const rhat = v2.norm(sim.r);
-      // Slerp from current velocity direction toward -rhat (inward radial).
-      const dxn = -rhat[0], dyn = -rhat[1];
-      const dot = Math.max(-1, Math.min(1, vhat[0]*dxn + vhat[1]*dyn));
-      const theta = Math.acos(dot);
-      let nx, ny;
-      if (theta < 1e-4) {
-        nx = vhat[0] * (1 - t) + dxn * t;
-        ny = vhat[1] * (1 - t) + dyn * t;
-      } else {
-        const sinT = Math.sin(theta);
-        const w1 = Math.sin((1 - t) * theta) / sinT;
-        const w2 = Math.sin(t * theta) / sinT;
-        nx = vhat[0] * w1 + dxn * w2;
-        ny = vhat[1] * w1 + dyn * w2;
-      }
-      const m = Math.hypot(nx, ny) || 1;
-      sim.v = [(nx / m) * speed, (ny / m) * speed];
-    }
-  } else if (!sim.verticalDescent && alt <= BOT) {
-    const speed = v2.mag(sim.v);
-    const rhat = v2.norm(sim.r);
-    sim.v = [-rhat[0] * speed, -rhat[1] * speed];
-    sim.verticalDescent = true;
-    addLog(`VERTICAL DESCENT · ALT ${alt.toFixed(1)} km · v ${(speed*1000).toFixed(0)} m/s`);
+  const r    = sim.r;
+  const rmag = Math.hypot(r[0], r[1]);
+  const alt  = rmag - C.RE;
+  const rhat = [r[0]/rmag, r[1]/rmag];
+  const that = [-rhat[1], rhat[0]];          // CCW tangent
+
+  // ---- Entry-Interface snap (one-shot at 122 km) ----
+  if (!sim.eiCrossed && alt <= C.ATM) {
+    sim.eiCrossed   = true;
+    sim.eiMet       = sim.met;
+    sim.eiPosAng    = Math.atan2(r[1], r[0]);
+    sim.eiDownrange = 0;
+    sim.maxG        = 0;
+
+    // SM jettisoned ~20 min before EI ⇒ only the crew module flies entry.
+    sim.massTotal = 9.3;             // tonnes (Orion CM)
+    sim.stageFuel = 0;
+    sim.thrustNow = 0;
+
+    // Rebuild velocity at the spec EI conditions, preserving prograde sense.
+    const vTanCur = sim.v[0]*that[0] + sim.v[1]*that[1];
+    const sign    = vTanCur >= 0 ? 1 : -1;
+    const vMag    = 10.728;          // km/s  (24,000 mph)
+    const fpa     = -6.5 * Math.PI / 180;
+    const vT      = vMag * Math.cos(fpa) * sign;
+    const vR      = vMag * Math.sin(fpa);            // negative ⇒ descending
+    sim.v[0] = rhat[0]*vR + that[0]*vT;
+    sim.v[1] = rhat[1]*vR + that[1]*vT;
+
+    addLog('ENTRY INTERFACE · 400,000 ft · 24,000 mph (10,728 m/s) · FPA -6.5°');
+    addLog('SERVICE MODULE JETTISONED · CREW MODULE SOLO');
   }
+
+  // ---- Per-step tracking & event logging (post-EI) ----
+  if (sim.eiCrossed) {
+    let dAng = Math.atan2(r[1], r[0]) - sim.eiPosAng;
+    while (dAng >  Math.PI) dAng -= 2*Math.PI;
+    while (dAng < -Math.PI) dAng += 2*Math.PI;
+    sim.eiDownrange = Math.abs(dAng) * C.RE;
+
+    const gNow = sim.accelMag * 1000 / 9.80665;      // km/s^2 → g
+    if (gNow > sim.maxG) sim.maxG = gNow;
+
+    const speed_ms = v2.mag(sim.v) * 1000;
+    if (!sim.drogueDeployed && alt < 7) {
+      sim.drogueDeployed = true;
+      addLog(`DROGUE CHUTES · ALT ${alt.toFixed(1)} km · v ${speed_ms.toFixed(0)} m/s`);
+    }
+    if (!sim.mainsDeployed && alt < 2.5) {
+      sim.mainsDeployed = true;
+      addLog(`MAIN CHUTES · ALT ${alt.toFixed(1)} km · v ${speed_ms.toFixed(0)} m/s`);
+    }
+  }
+
+  // ---- Splashdown ----
   if (alt <= 0) {
-    const rhat = v2.norm(sim.r);
     sim.r = [rhat[0]*C.RE, rhat[1]*C.RE];
     sim.v = [0, 0];
-    sim.thrustNow = 0;
-    sim.splashWall = 14;           // wall-seconds to display result
-    addLog('SPLASHDOWN · CREW SAFE · MISSION COMPLETE');
+    sim.thrustNow  = 0;
+    sim.splashWall = 14;
+    const dt_min = (sim.met - sim.eiMet) / 60;
+    addLog(`SPLASHDOWN · DOWNRANGE ${sim.eiDownrange.toFixed(0)} km · EI+${dt_min.toFixed(1)} min · MAX ${sim.maxG.toFixed(1)} G`);
+    addLog('CREW SAFE · MISSION COMPLETE');
     setPhase('SPLASHDOWN');
   }
 }
@@ -1484,28 +1568,46 @@ function drawGalaxies() {
   // Deep-space nebulae / galaxy clouds — soft elliptical radial gradients
   // tinted with cool/warm hues. Cached per canvas size so positions stay put.
   const w = ui.canvas.width, h = ui.canvas.height;
-  if (!drawGalaxies.cache || drawGalaxies.cache.w !== w || drawGalaxies.cache.h !== h) {
+  if (!drawGalaxies.cache || drawGalaxies.cache.w !== w || drawGalaxies.cache.h !== h || drawGalaxies.cache.dpr !== dpr) {
+    // On portrait phones the panels cover the top ~25% and bottom ~40% of the
+    // canvas; randomly placed galaxies land mostly under them and the panels'
+    // backdrop-filter blur wipes the rest. Detect that case to (a) confine
+    // galaxy centers to the visible middle band and (b) brighten the palette.
+    const portrait = h > w * 1.15;
+    const small    = Math.min(w, h);
+    const mobile   = portrait && (small / dpr) < 600;
+
     let s = 0xC0FFEE;
     function rnd() { s = (s*1664525 + 1013904223) >>> 0; return s / 0xffffffff; }
-    const palette = [
-      ['rgba(140, 90, 200, 0.55)',  'rgba(60, 30, 120, 0.18)'],   // violet
-      ['rgba(80, 160, 220, 0.50)',  'rgba(20, 60, 110, 0.16)'],   // cyan-blue
-      ['rgba(220, 110, 160, 0.45)', 'rgba(110, 30, 80, 0.14)'],   // pink
-      ['rgba(255, 200, 140, 0.40)', 'rgba(120, 70, 30, 0.12)'],   // amber
-      ['rgba(120, 200, 180, 0.40)', 'rgba(40, 90, 80, 0.12)'],    // teal
+    const palette = mobile ? [
+      ['rgba(170, 110, 230, 0.75)', 'rgba(70, 35, 140, 0.26)'],    // violet
+      ['rgba(100, 185, 245, 0.70)', 'rgba(25, 75, 135, 0.24)'],    // cyan-blue
+      ['rgba(240, 130, 185, 0.65)', 'rgba(125, 35, 95, 0.22)'],    // pink
+      ['rgba(255, 215, 155, 0.60)', 'rgba(140, 80, 35, 0.20)'],    // amber
+      ['rgba(140, 220, 200, 0.60)', 'rgba(50, 110, 100, 0.20)'],   // teal
+    ] : [
+      ['rgba(140, 90, 200, 0.55)',  'rgba(60, 30, 120, 0.18)'],    // violet
+      ['rgba(80, 160, 220, 0.50)',  'rgba(20, 60, 110, 0.16)'],    // cyan-blue
+      ['rgba(220, 110, 160, 0.45)', 'rgba(110, 30, 80, 0.14)'],    // pink
+      ['rgba(255, 200, 140, 0.40)', 'rgba(120, 70, 30, 0.12)'],    // amber
+      ['rgba(120, 200, 180, 0.40)', 'rgba(40, 90, 80, 0.12)'],     // teal
     ];
-    const N = 5;
+    const N = mobile ? 7 : 5;
     const galaxies = [];
     for (let i = 0; i < N; i++) {
+      // Mobile portrait: place centers in the 22%–72% vertical band so they
+      // fall in the canvas region not covered by telemetry/status (top) and
+      // log/controls (bottom).
       const cx = rnd() * w;
-      const cy = rnd() * h;
-      const radius = (Math.min(w, h) * (0.18 + rnd() * 0.22));
+      const cy = mobile ? h * (0.22 + rnd() * 0.50) : rnd() * h;
+      const radius = small * ((mobile ? 0.22 : 0.18) + rnd() * 0.22);
       const stretch = 0.45 + rnd() * 0.5;     // ellipse aspect ratio
       const angle = rnd() * Math.PI;
       const colors = palette[i % palette.length];
       galaxies.push({ cx, cy, radius, stretch, angle, inner: colors[0], outer: colors[1] });
     }
-    // Tiny bright "core stars" peppered inside each galaxy
+    // Tiny bright "core stars" peppered inside each galaxy. Sized in CSS px
+    // (×dpr) so they don't collapse to sub-pixel dots on high-DPR screens.
     const cores = [];
     for (const g of galaxies) {
       const k = 14 + Math.floor(rnd() * 10);
@@ -1518,12 +1620,12 @@ function drawGalaxies() {
         cores.push([
           g.cx + lx * ca - ly * sa,
           g.cy + lx * sa + ly * ca,
-          rnd() * 1.4 + 0.4,
-          0.4 + rnd() * 0.4,
+          (rnd() * 1.4 + 0.6) * dpr,
+          0.55 + rnd() * 0.4,
         ]);
       }
     }
-    drawGalaxies.cache = { w, h, galaxies, cores };
+    drawGalaxies.cache = { w, h, dpr, galaxies, cores };
   }
 
   ctx.save();
@@ -1553,16 +1655,17 @@ function drawStars() {
   // Cheap parallax starfield seeded from canvas size
   ctx.save();
   const w = ui.canvas.width, h = ui.canvas.height;
-  if (!drawStars.cache || drawStars.cache.w !== w || drawStars.cache.h !== h) {
+  if (!drawStars.cache || drawStars.cache.w !== w || drawStars.cache.h !== h || drawStars.cache.dpr !== dpr) {
     const stars = [];
     let s = 1;
     function rnd() { s = (s*1664525 + 1013904223) >>> 0; return s / 0xffffffff; }
     s = 12345;
     const N = Math.floor((w*h)/(15000*dpr*dpr));
     for (let i = 0; i < N; i++) {
-      stars.push([rnd()*w, rnd()*h, rnd()*1.6+0.2, rnd()*0.6+0.2]);
+      // Star size in CSS px (×dpr) so high-DPR mobile doesn't subpixel them out.
+      stars.push([rnd()*w, rnd()*h, (rnd()*1.6+0.4)*dpr, rnd()*0.6+0.2]);
     }
-    drawStars.cache = { w, h, stars };
+    drawStars.cache = { w, h, dpr, stars };
   }
   for (const [x,y,r,a] of drawStars.cache.stars) {
     ctx.fillStyle = `rgba(200,220,240,${a})`;
