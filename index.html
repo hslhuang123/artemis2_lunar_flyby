@@ -457,8 +457,8 @@ const AUTO_WARP = {
   TRANSLUNAR:  10000,
   LUNAR_SOI:   10000,
   TRANSEARTH:  10000,
-  ENTRY:       5000,
-  SPLASHDOWN:  500,
+  ENTRY:       2000,        // start ENTRY at a slower warp; the altitude-graded clamp tapers it further
+  SPLASHDOWN:  1,           // freeze on the splashdown beat — capsule is stationary, no need to warp
 };
 
 // =============================================================================
@@ -961,7 +961,7 @@ function entryUpdate() {
     sim.r = [rhat[0]*C.RE, rhat[1]*C.RE];
     sim.v = [0, 0];
     sim.thrustNow = 0;
-    sim.splashWall = 8;            // wall-seconds to display result
+    sim.splashWall = 14;           // wall-seconds to display result
     addLog('SPLASHDOWN · CREW SAFE · MISSION COMPLETE');
     setPhase('SPLASHDOWN');
   }
@@ -1013,12 +1013,19 @@ function simStep(realDt) {
   }
 
   let warpEff = sim.warp;
-  // Inside the atmosphere only, clamp warp so the deceleration & heating phase
-  // is visible. The maxStep ladder below already keeps RK4 sub-steps sane at
-  // higher altitudes, so no extra clamp is needed there.
+  // Altitude-graded warp clamp during the inbound leg. Each band tapers the
+  // effective warp so the descent reads as a smooth deceleration instead of
+  // a single step at 200 km. Also keeps RK4 sub-steps sane through the
+  // atmosphere where drag is non-trivial.
   if (sim.phase === 'TRANSEARTH' || sim.phase === 'ENTRY') {
     const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
-    if (alt < 200) warpEff = Math.min(warpEff, 1000);
+    if      (alt < 30)    warpEff = Math.min(warpEff, 5);
+    else if (alt < 80)    warpEff = Math.min(warpEff, 20);
+    else if (alt < 200)   warpEff = Math.min(warpEff, 100);
+    else if (alt < 500)   warpEff = Math.min(warpEff, 250);
+    else if (alt < 2000)  warpEff = Math.min(warpEff, 500);
+    else if (alt < 5000)  warpEff = Math.min(warpEff, 1000);
+    else if (alt < 15000) warpEff = Math.min(warpEff, 2500);
   }
   sim.warpEff = warpEff;
   let dtTotal = realDt * warpEff;
