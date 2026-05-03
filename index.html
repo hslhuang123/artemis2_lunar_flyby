@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>ARTEMIS II — Mission Trajectory Simulator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -218,6 +218,114 @@
   }
   #brand strong { color: #61dafb; font-weight: 700; }
   #brand .sub { color: #6c869b; font-size: 9px; letter-spacing: 0.4em; }
+
+  /* ----- Mobile portrait (phones) ----- */
+  @media (max-width: 768px) {
+    body {
+      overscroll-behavior: none;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #brand { display: none; }
+
+    .panel { padding: 8px 10px; }
+    .panel h2 {
+      cursor: pointer;
+      position: relative;
+      padding-right: 16px;
+    }
+    .panel h2::after {
+      content: '\2212';        /* minus */
+      position: absolute;
+      right: 0;
+      top: 0;
+      font-size: 14px;
+      color: #61dafb;
+      line-height: 1;
+    }
+    .panel.collapsed > *:not(h2) { display: none; }
+    .panel.collapsed h2 {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .panel.collapsed h2::after { content: '+'; }
+
+    .row { font-size: 11px; line-height: 1.5; gap: 6px; }
+    .label { font-size: 9px; letter-spacing: 0.06em; }
+    #phase-name { font-size: 14px; margin-bottom: 6px; letter-spacing: 0.08em; }
+
+    #telemetry {
+      top: max(8px, env(safe-area-inset-top));
+      left: max(8px, env(safe-area-inset-left));
+      width: calc(50% - 12px);
+    }
+    #status {
+      top: max(8px, env(safe-area-inset-top));
+      right: max(8px, env(safe-area-inset-right));
+      width: calc(50% - 12px);
+    }
+
+    #controls {
+      top: auto;
+      bottom: max(8px, env(safe-area-inset-bottom));
+      left: max(8px, env(safe-area-inset-left));
+      right: max(8px, env(safe-area-inset-right));
+      width: auto;
+    }
+    .ctrl-row { gap: 6px; margin-bottom: 8px; }
+    .ctrl-row .label { width: 48px; }
+    .ctrl-buttons { gap: 6px; margin-top: 8px; }
+    .ctrl-buttons button { padding: 12px 4px; font-size: 11px; letter-spacing: 0.12em; }
+
+    #log {
+      top: auto;
+      bottom: calc(196px + env(safe-area-inset-bottom));
+      left: max(8px, env(safe-area-inset-left));
+      right: max(8px, env(safe-area-inset-right));
+      width: auto;
+      max-height: 90px;
+    }
+    #log-entries { max-height: 56px; }
+    .log-entry { font-size: 10px; padding: 3px 0; line-height: 1.35; }
+
+    /* Larger touch targets for sliders */
+    input[type=range] { height: 4px; }
+    input[type=range]::-webkit-slider-thumb { width: 20px; height: 20px; }
+    input[type=range]::-moz-range-thumb     { width: 20px; height: 20px; }
+    .num { width: 50px; font-size: 10px; }
+  }
+
+  /* ----- Very narrow phones ----- */
+  @media (max-width: 380px) {
+    .row { font-size: 10px; line-height: 1.45; }
+    #phase-name { font-size: 13px; }
+    .ctrl-row .label { width: 44px; font-size: 9px; }
+    button { font-size: 10px; letter-spacing: 0.12em; }
+  }
+
+  /* ----- Landscape phones (short height) ----- */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #brand { display: none; }
+    #telemetry { top: 8px; left: 8px; width: 200px; }
+    #status    { top: 8px; right: 8px; width: 200px; }
+    #controls {
+      top: auto;
+      bottom: 8px;
+      left: 8px;
+      right: auto;
+      width: 220px;
+    }
+    #log {
+      top: auto;
+      bottom: 8px;
+      right: 8px;
+      left: auto;
+      width: 240px;
+      max-height: 140px;
+    }
+    #log-entries { max-height: 100px; }
+  }
 </style>
 </head>
 <body>
@@ -261,7 +369,7 @@
     </div>
     <div class="ctrl-row">
       <span class="label">WARP</span>
-      <input type="range" id="warp" min="0" max="4" value="2" step="1">
+      <input type="range" id="warp" min="0" max="8" value="2" step="1">
       <div class="num"><span id="warp-val">100</span>×</div>
     </div>
     <div class="ctrl-buttons">
@@ -336,21 +444,21 @@ const PHASE_COLOR = {
 };
 
 // Time-warp slider mapping (index 0..4)
-const WARP_LEVELS = [1, 10, 100, 1000, 10000];
+const WARP_LEVELS = [1, 10, 100, 500, 1000, 2000, 5000, 6667, 10000];
 
 // Auto-warp recommendations per phase
 const AUTO_WARP = {
   PRELAUNCH:   100,
   LAUNCH:      100,
   LEO:         1000,
-  HEO_BURN:    100,
-  HEO:         1000,
-  TLI_BURN:    10,
+  HEO_BURN:    1000,
+  HEO:         5000,
+  TLI_BURN:    10000,
   TRANSLUNAR:  10000,
-  LUNAR_SOI:   1000,
+  LUNAR_SOI:   10000,
   TRANSEARTH:  10000,
-  ENTRY:       10,
-  SPLASHDOWN:  1,
+  ENTRY:       5000,
+  SPLASHDOWN:  500,
 };
 
 // =============================================================================
@@ -569,17 +677,23 @@ function elementsEarth() {
 // When TLI fires, reposition the Moon so that the spacecraft's apogee
 // of the post-TLI ellipse coincides (in time + angle) with the Moon position.
 // =============================================================================
+// Target apogee for the TLI burn: just beyond Moon's orbit so the spacecraft
+// reliably enters the lunar SOI near apoapsis. Used by both the TLI burn
+// (in heoUpdate) and the moon-phase alignment so they stay consistent.
+const TLI_TARGET_RA = 386400;          // km (Rmoon + 2000)
+
 function alignMoonForFlyby() {
-  // Post-TLI: spacecraft is at perigee with prograde velocity tangent to orbit.
-  // The orbit's apogee lies on the line from Earth through perigee, opposite side.
-  // a = (rp + ra)/2 with ra ≈ Rmoon.
+  // Post-TLI: spacecraft will be at perigee with prograde velocity tangent
+  // to its new ellipse. The orbit's apogee lies on the line from Earth through
+  // the current position, opposite side. The TLI burn is sized to achieve
+  // ra = TLI_TARGET_RA exactly (see heoUpdate), so we use that ra here too.
   const rp = Math.hypot(sim.r[0], sim.r[1]);
-  // After TLI burn the spacecraft will be pushed; at burn end we'll re-align.
-  const ra = C.Rmoon;
+  const ra = TLI_TARGET_RA;
   const a = (rp + ra) / 2;
   const tof = Math.PI * Math.sqrt(a*a*a / C.muE);   // half-period to apogee
   const apogeeAngle = Math.atan2(-sim.r[1], -sim.r[0]); // opposite side from current r
-  // Want Moon at apogee direction (with small lead so SC enters SOI before apogee)
+  // Place Moon slightly behind apogee so SC encounters it just past apoapsis
+  // (Moon is angularly faster than SC near apoapsis and catches up).
   const targetAngle = apogeeAngle - 0.10;  // ~6° lead
   const moonAtTOF = targetAngle;
   // moonAtTOF = moonPhase0 + omega*(met + tof)  →  solve for moonPhase0
@@ -609,7 +723,9 @@ function setPhase(p, msg) {
   }
 }
 
-// LAUNCH ascent: scripted thrust+pitch program. Force-snap to parking orbit at MECO.
+// LAUNCH ascent: gravity-turn pitch program, then a continuous ICPS
+// circularization burn that smoothly bends velocity onto the parking-orbit
+// tangent (no instantaneous Δv → no kink in the trail).
 function launchUpdate(dt) {
   // Stage transitions by MET
   if (sim.met >= 128 && sim.stageIdx === 0) {
@@ -627,46 +743,66 @@ function launchUpdate(dt) {
     sim.stageFuel = STAGES[2].fuel;
     sim.stageFuel0 = STAGES[2].fuel;
     addLog('MAIN ENGINE CUT-OFF · CORE STAGE SEPARATION');
+    addLog('ICPS IGNITION · CIRCULARIZATION BURN');
   }
 
-  // Pitch program: 0 (radial) → ~70° over the full 478s burn.
+  // Phase 1 — powered ascent with gravity-turn pitch program (0 → 70° over 478 s).
   // Slow gravity turn keeps net radial accel positive — at higher pitch the
   // core stage T/W (~1.25 g) can't overcome gravity and the rocket falls.
-  const pitch = Math.min(70 * Math.PI/180, (sim.met / 478) * (70 * Math.PI/180));
-  sim.burnPitch = pitch;
-  const rhat = v2.norm(sim.r);
-  const that = v2.perp(rhat);   // tangent (counterclockwise)
-  sim.burnDir = [
-    Math.cos(pitch)*rhat[0] + Math.sin(pitch)*that[0],
-    Math.cos(pitch)*rhat[1] + Math.sin(pitch)*that[1],
-  ];
-  sim.burning      = sim.stageIdx <= 1 && sim.stageFuel > 0;
-  sim.thrustActive = sim.burning;
-  sim.thrustNow    = sim.burning ? STAGES[sim.stageIdx].thrust * sim.throttle : 0;
-
-  // MECO + circularization. Treat the ascent's final altitude as the parking
-  // orbit's perigee (rather than snapping position down to 185 km, which
-  // produced a visible "dip" whenever ascent overshot). Apogee is held at the
-  // spec value; vp comes from vis-viva (eq. 4).
-  if (sim.met >= 478) {
-    const rp = Math.hypot(sim.r[0], sim.r[1]);
-    const ra = Math.max(C.PARK_RA, rp + 100);
-    const a  = (rp + ra) / 2;
-    const vp = Math.sqrt(C.muE * (2/rp - 1/a));
-    const tan = v2.perp(v2.norm(sim.r));
-    sim.v = [tan[0]*vp, tan[1]*vp];
-    sim.burning      = false;
-    sim.thrustActive = false;
-    sim.thrustNow    = 0;
-    sim.massTotal    = STAGES[2].mass;
-    sim.stageFuel    = STAGES[2].fuel;
-    sim.stageFuel0   = STAGES[2].fuel;
-    sim.stageIdx     = 2;
-    sim.lastTrueAnomalySign = 0;
-    const peri = (rp - C.RE).toFixed(0);
-    const apo  = (ra - C.RE).toFixed(0);
-    setPhase('LEO', `PARKING ORBIT INSERTION · ${peri}×${apo} km · vp ${(vp*1000).toFixed(0)} m/s`);
+  if (sim.met < 478) {
+    const pitch = Math.min(70 * Math.PI/180, (sim.met / 478) * (70 * Math.PI/180));
+    sim.burnPitch = pitch;
+    const rhat = v2.norm(sim.r);
+    const that = v2.perp(rhat);   // tangent (counterclockwise)
+    sim.burnDir = [
+      Math.cos(pitch)*rhat[0] + Math.sin(pitch)*that[0],
+      Math.cos(pitch)*rhat[1] + Math.sin(pitch)*that[1],
+    ];
+    sim.burning      = sim.stageIdx <= 1 && sim.stageFuel > 0;
+    sim.thrustActive = sim.burning;
+    sim.thrustNow    = sim.burning ? STAGES[sim.stageIdx].thrust * sim.throttle : 0;
+    return;
   }
+
+  // Phase 2 — ICPS circularization (478 s ≤ MET < 478+CIRC_DUR).
+  // Each sub-step blends velocity toward (vTarget at current radius) via a
+  // low-pass filter with time constant tau. tau is small enough that ~5τ fits
+  // inside CIRC_DUR (so velocity has effectively converged by burn end), and
+  // large enough vs. dt that each step's Δv is small — produces a smooth arc
+  // through the trail rather than the kink an instantaneous Δv would create.
+  const CIRC_DUR = 30;
+  const elapsed = sim.met - 478;
+  if (elapsed < CIRC_DUR) {
+    const rp   = Math.hypot(sim.r[0], sim.r[1]);
+    const ra   = Math.max(C.PARK_RA, rp + 100);
+    const a    = (rp + ra) / 2;
+    const vMag = Math.sqrt(C.muE * (2/rp - 1/a));     // vis-viva, eq. 4
+    const tHat = v2.perp(v2.norm(sim.r));
+    const vTarget = [tHat[0]*vMag, tHat[1]*vMag];
+    const tau = 6;
+    const k = 1 - Math.exp(-dt / tau);
+    sim.v[0] += (vTarget[0] - sim.v[0]) * k;
+    sim.v[1] += (vTarget[1] - sim.v[1]) * k;
+    // Cosmetic display — velocity is updated directly above, so thrustActive
+    // stays false to avoid double-applying thrust in deriv().
+    sim.burning      = true;
+    sim.thrustActive = false;
+    const dv = [vTarget[0] - sim.v[0], vTarget[1] - sim.v[1]];
+    const dvMag = Math.hypot(dv[0], dv[1]);
+    sim.burnDir   = dvMag > 1e-6 ? [dv[0]/dvMag, dv[1]/dvMag] : tHat;
+    sim.thrustNow = STAGES[2].thrust * sim.throttle;
+    return;
+  }
+
+  // Phase 3 — insertion complete, hand off to LEO.
+  sim.burning      = false;
+  sim.thrustActive = false;
+  sim.thrustNow    = 0;
+  sim.lastTrueAnomalySign = 0;
+  const elem = elementsEarth();
+  const peri = elem.rp > 0 ? (elem.rp - C.RE).toFixed(0) : '?';
+  const apo  = elem.ra > 0 ? (elem.ra - C.RE).toFixed(0) : '?';
+  setPhase('LEO', `PARKING ORBIT INSERTION · ${peri}×${apo} km`);
 }
 
 // Apply an impulsive prograde delta-v.  Mass loss via Tsiolkovsky.
@@ -710,8 +846,14 @@ function leoUpdate() {
   if (nearPerigee()) {
     sim.leoOrbits++;
     if (sim.leoOrbits >= 1) {
+      // Vis-viva (eq. 4): dV to raise apogee to HEO_RA from current perigee.
+      // Targeting apogee directly absorbs any LEO-insertion dispersion.
+      const r = Math.hypot(sim.r[0], sim.r[1]);
+      const aT = (r + C.HEO_RA) / 2;
+      const vT = Math.sqrt(C.muE * (2/r - 1/aT));
+      const dV = vT - Math.hypot(sim.v[0], sim.v[1]);
       setPhase('HEO_BURN');
-      applyImpulseBurn(C.HEO_DV, 6, 'HEO INSERTION BURN · ICPS · ΔV 2293 m/s');
+      applyImpulseBurn(dV, 6, `HEO INSERTION BURN · ICPS · ΔV ${(dV*1000).toFixed(0)} m/s`);
     }
   }
 }
@@ -728,10 +870,17 @@ function heoUpdate() {
   if (nearPerigee()) {
     sim.heoOrbits++;
     if (sim.heoOrbits >= 1) {
+      // Vis-viva (eq. 4): dV to raise apogee to TLI_TARGET_RA from current
+      // perigee. Targeting apogee directly (rather than a fixed dV) ensures
+      // the spacecraft reaches the Moon's orbit regardless of LEO/HEO disp.
+      const r = Math.hypot(sim.r[0], sim.r[1]);
+      const aT = (r + TLI_TARGET_RA) / 2;
+      const vT = Math.sqrt(C.muE * (2/r - 1/aT));
+      const dV = vT - Math.hypot(sim.v[0], sim.v[1]);
       // Align Moon BEFORE TLI Δv is applied (uses current rp for ellipse)
       alignMoonForFlyby();
       setPhase('TLI_BURN');
-      applyImpulseBurn(C.TLI_DV, 4, 'TLI BURN · ICPS RE-IGNITION · ΔV 330 m/s');
+      applyImpulseBurn(dV, 4, `TLI BURN · ICPS RE-IGNITION · ΔV ${(dV*1000).toFixed(0)} m/s`);
     }
   }
 }
@@ -799,7 +948,7 @@ function transearthUpdate() {
     applyReturnTCM();
   }
   const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
-  if (alt < C.ATM) {
+  if (alt < 10000) {
     addLog(`ENTRY INTERFACE · ALT ${alt.toFixed(0)} km · v ${(v2.mag(sim.v)*1000).toFixed(0)} m/s`);
     setPhase('ENTRY');
   }
@@ -864,13 +1013,14 @@ function simStep(realDt) {
   }
 
   let warpEff = sim.warp;
-  // Force-down warp on close Earth approach so atmospheric entry is not
-  // skipped by a single coarse sub-step.
-  if (sim.phase === 'TRANSEARTH') {
-    const r = Math.hypot(sim.r[0], sim.r[1]);
-    if (r < 30000) warpEff = Math.min(warpEff, 100);
-    if (r < 12000) warpEff = Math.min(warpEff, 10);
+  // Inside the atmosphere only, clamp warp so the deceleration & heating phase
+  // is visible. The maxStep ladder below already keeps RK4 sub-steps sane at
+  // higher altitudes, so no extra clamp is needed there.
+  if (sim.phase === 'TRANSEARTH' || sim.phase === 'ENTRY') {
+    const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
+    if (alt < 200) warpEff = Math.min(warpEff, 1000);
   }
+  sim.warpEff = warpEff;
   let dtTotal = realDt * warpEff;
 
   // Maximum integration step size (s) — tighter during powered/atmospheric flight
@@ -879,13 +1029,14 @@ function simStep(realDt) {
     case 'LAUNCH':      maxStep = 0.5;  break;
     case 'HEO_BURN':
     case 'TLI_BURN':    maxStep = 1.0;  break;
-    case 'ENTRY':       maxStep = 0.25; break;
     case 'LUNAR_SOI':   maxStep = 30;   break;
     case 'LEO':
     case 'HEO':         maxStep = 60;   break;
+    case 'ENTRY':
     case 'TRANSEARTH': {
       const r = Math.hypot(sim.r[0], sim.r[1]);
-      maxStep = r < 12000 ? 0.5 : (r < 30000 ? 5 : 300);
+      const alt = r - C.RE;
+      maxStep = alt < 200 ? 0.25 : (r < 12000 ? 0.5 : (r < 30000 ? 5 : 300));
       break;
     }
     default:            maxStep = 300;
@@ -969,6 +1120,8 @@ const ui = {
   peri:     document.getElementById('t-peri'),
   period:   document.getElementById('t-period'),
   logEntries: document.getElementById('log-entries'),
+  log:      document.getElementById('log'),
+  controls: document.getElementById('controls'),
   throttle: document.getElementById('throttle'),
   throttleVal: document.getElementById('throttle-val'),
   warp:     document.getElementById('warp'),
@@ -1003,6 +1156,28 @@ ui.pause.addEventListener('click', () => {
 ui.reset.addEventListener('click', () => {
   fullReset(false);
 });
+
+// Tap a panel header to collapse/expand it (useful on small screens).
+document.querySelectorAll('.panel h2').forEach(h => {
+  h.addEventListener('click', () => {
+    h.parentElement.classList.toggle('collapsed');
+    updateLogPosition();
+  });
+});
+
+// In mobile-portrait the log stacks above the controls panel, so the log's
+// bottom must track the controls' current height (collapsed vs expanded).
+// In landscape phones / desktop the log uses its stylesheet position.
+function updateLogPosition() {
+  const stacked = window.matchMedia('(max-width: 768px)').matches &&
+                  !window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
+  if (!stacked) { ui.log.style.bottom = ''; return; }
+  const cr = ui.controls.getBoundingClientRect();
+  const fromBottom = window.innerHeight - cr.bottom;
+  ui.log.style.bottom = (cr.height + fromBottom + 8) + 'px';
+}
+window.addEventListener('resize', updateLogPosition);
+window.addEventListener('orientationchange', updateLogPosition);
 
 function fullReset(autorestart) {
   sim = freshSim();
@@ -1070,7 +1245,9 @@ function updateTelemetry() {
   const spent = sim.stagesSpent[sim.stageIdx];
   ui.stage.innerHTML = `<span class="stage-pill${spent ? ' spent' : ''}">${stageName}</span>`;
 
-  ui.warpDisp.textContent = sim.warp + '×' + (sim.autoWarpEnabled ? ' AUTO' : '');
+  const wEff = (typeof sim.warpEff === 'number') ? sim.warpEff : sim.warp;
+  const wText = (wEff !== sim.warp) ? `${wEff}× (${sim.warp}× set)` : `${sim.warp}×`;
+  ui.warpDisp.textContent = wText + (sim.autoWarpEnabled ? ' AUTO' : '');
 
   if (sim.apoapsis > 0) {
     ui.apo.textContent = fmtKm(sim.apoapsis - C.RE) + ' alt';
@@ -1408,6 +1585,7 @@ function frame(now) {
 // =============================================================================
 sim = freshSim();
 addLog('SYSTEMS NOMINAL · STANDING BY');
+updateLogPosition();
 requestAnimationFrame(frame);
 
 </script>
