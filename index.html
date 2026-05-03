@@ -770,6 +770,9 @@ function launchUpdate(dt) {
   // inside CIRC_DUR (so velocity has effectively converged by burn end), and
   // large enough vs. dt that each step's Δv is small — produces a smooth arc
   // through the trail rather than the kink an instantaneous Δv would create.
+  // The blend coefficient is smoothstep-ramped at both ends of the window so
+  // dv/dt → 0 at the phase boundaries, eliminating the curvature jump that
+  // would otherwise show as a visible kink at LAUNCH↔LEO.
   const CIRC_DUR = 30;
   const elapsed = sim.met - 478;
   if (elapsed < CIRC_DUR) {
@@ -780,7 +783,13 @@ function launchUpdate(dt) {
     const tHat = v2.perp(v2.norm(sim.r));
     const vTarget = [tHat[0]*vMag, tHat[1]*vMag];
     const tau = 6;
-    const k = 1 - Math.exp(-dt / tau);
+    const RAMP = 6;
+    const uIn  = Math.min(1, elapsed / RAMP);
+    const uOut = Math.min(1, (CIRC_DUR - elapsed) / RAMP);
+    const sIn  = uIn  * uIn  * (3 - 2*uIn);
+    const sOut = uOut * uOut * (3 - 2*uOut);
+    const env  = Math.min(sIn, sOut);
+    const k = (1 - Math.exp(-dt / tau)) * env;
     sim.v[0] += (vTarget[0] - sim.v[0]) * k;
     sim.v[1] += (vTarget[1] - sim.v[1]) * k;
     // Cosmetic display — velocity is updated directly above, so thrustActive
@@ -1152,8 +1161,8 @@ ui.action.addEventListener('click', () => {
     sim.started = true;
     sim.lastTrueAnomalySign = 0;
     setPhase('LAUNCH', 'IGNITION · SLS BLOCK 1 LIFT-OFF');
-    ui.action.disabled = true;
-    ui.action.textContent = 'AUTOPILOT';
+    ui.action.style.display = 'none';
+    updateLogPosition();
   }
 });
 ui.pause.addEventListener('click', () => {
@@ -1192,17 +1201,16 @@ function fullReset(autorestart) {
   sim.warp = WARP_LEVELS[parseInt(ui.warp.value)];
   sim.autoWarpEnabled = true;
   ui.logEntries.innerHTML = '';
-  ui.action.disabled = false;
-  ui.action.textContent = 'LAUNCH';
+  ui.action.style.display = '';
   ui.pause.textContent = 'PAUSE';
   addLog('SYSTEMS NOMINAL · STANDING BY');
   if (autorestart) {
     sim.started = true;
     sim.lastTrueAnomalySign = 0;
     setPhase('LAUNCH', 'IGNITION · SLS BLOCK 1 LIFT-OFF');
-    ui.action.disabled = true;
-    ui.action.textContent = 'AUTOPILOT';
+    ui.action.style.display = 'none';
   }
+  updateLogPosition();
 }
 
 function fmtKm(km) {
@@ -1295,7 +1303,7 @@ resize();
 
 // View target — auto-zoom to fit relevant bodies
 function updateView() {
-  const earthOnly = ['LEO','HEO_BURN','ENTRY','SPLASHDOWN'];
+  const earthOnly = ['LEO','HEO_BURN'];
   const sd = Math.hypot(sim.r[0], sim.r[1]);
   let target, targetCenter;
 
@@ -1304,6 +1312,17 @@ function updateView() {
     // always visible, and zoom out gradually as altitude grows.
     const alt = Math.max(0, sd - C.RE);
     target = Math.max(50, Math.min(C.RE * 6, alt * 6 + 100));
+    targetCenter = [sim.r[0], sim.r[1]];
+  } else if (sim.phase === 'ENTRY') {
+    // Track the capsule through atmospheric descent so the EI → splashdown
+    // motion is visible. Tighter zoom as altitude drops; floor at 30 km so
+    // the capsule and the curve of Earth are both legible at touchdown.
+    const alt = Math.max(0, sd - C.RE);
+    target = Math.max(30, Math.min(800, alt * 4 + 60));
+    targetCenter = [sim.r[0], sim.r[1]];
+  } else if (sim.phase === 'SPLASHDOWN') {
+    // Hold a tight view on the splashdown beat — capsule at sea level.
+    target = 30;
     targetCenter = [sim.r[0], sim.r[1]];
   } else if (sim.phase === 'LUNAR_SOI') {
     const m = moonPos(sim.met);
