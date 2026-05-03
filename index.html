@@ -1228,15 +1228,23 @@ function simStep(realDt) {
   // Altitude-graded warp clamp during the inbound leg. Each band tapers the
   // effective warp so the descent reads as a smooth deceleration instead of
   // a single step at 200 km. Also keeps RK4 sub-steps sane through the
-  // atmosphere where drag is non-trivial.
+  // atmosphere where drag is non-trivial. The entry interface corridor
+  // (200 km → 0) is broken into finer bands so the dramatic beats — peak
+  // heating, peak-G, drogue, mains, splashdown — each get their own warp
+  // step instead of being collapsed into a single 5× → 20× → 100× ladder.
   if (sim.phase === 'TRANSEARTH' || sim.phase === 'ENTRY') {
     const alt = Math.hypot(sim.r[0], sim.r[1]) - C.RE;
-    if      (alt < 30)    warpEff = Math.min(warpEff, 5);
-    else if (alt < 80)    warpEff = Math.min(warpEff, 20);
-    else if (alt < 200)   warpEff = Math.min(warpEff, 100);
-    else if (alt < 500)   warpEff = Math.min(warpEff, 250);
-    else if (alt < 2000)  warpEff = Math.min(warpEff, 500);
-    else if (alt < 5000)  warpEff = Math.min(warpEff, 1000);
+    // Below 70 km: hold a constant 50× through peak heating, peak-G, chute
+    // deploys, and splashdown so the final descent finishes quickly without
+    // ratcheting down through multiple slow bands.
+    if      (alt < 70)    warpEff = Math.min(warpEff, 50);
+    else if (alt < 100)   warpEff = Math.min(warpEff, 75);    // deep entry
+    else if (alt < 130)   warpEff = Math.min(warpEff, 150);   // just past EI (122 km)
+    else if (alt < 200)   warpEff = Math.min(warpEff, 300);   // approaching EI
+    // Upper-altitude inbound coast (above the sensible atmosphere)
+    else if (alt < 500)   warpEff = Math.min(warpEff, 600);
+    else if (alt < 2000)  warpEff = Math.min(warpEff, 1000);
+    else if (alt < 5000)  warpEff = Math.min(warpEff, 1500);
     else if (alt < 15000) warpEff = Math.min(warpEff, 2500);
   }
   sim.warpEff = warpEff;
