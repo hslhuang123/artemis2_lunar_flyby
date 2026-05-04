@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>ARTEMIS II - Lunar Flyby Simulator by 時力</title>
+<title>ARTEMIS II - Lunar Flyby Simulator, 時力</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -345,7 +345,7 @@
 <body>
   <canvas id="view"></canvas>
 
-  <div id="brand"><strong>ARTEMIS II</strong> &nbsp;-&nbsp; <span class="sub">LUNAR FLYBY SIMULATOR by <span style="color:#cfd6dd">時力</span></span></div>
+  <div id="brand"><strong>ARTEMIS II</strong> &nbsp;-&nbsp; <span class="sub">LUNAR FLYBY SIMULATOR, <span style="color:#cfd6dd">時力</span></span></div>
 
   <div id="telemetry" class="panel">
     <h2>TELEMETRY</h2>
@@ -372,16 +372,6 @@
 
   <div id="controls" class="panel">
     <h2>FLIGHT CONTROL</h2>
-    <div class="ctrl-row">
-      <span class="label">THROTTLE</span>
-      <input type="range" id="throttle" min="0" max="100" value="100">
-      <div class="num"><span id="throttle-val">100</span>%</div>
-    </div>
-    <div class="ctrl-row">
-      <span class="label">WARP</span>
-      <input type="range" id="warp" min="0" max="8" value="2" step="1">
-      <div class="num"><span id="warp-val">100</span>×</div>
-    </div>
     <div class="ctrl-buttons">
       <button id="action" class="primary">LAUNCH</button>
       <button id="pause">PAUSE</button>
@@ -821,12 +811,7 @@ function setPhase(p, msg) {
     if (msg) addLog(msg);
     if (sim.autoWarpEnabled) {
       const target = AUTO_WARP[p];
-      const idx = WARP_LEVELS.indexOf(target);
-      if (idx >= 0) {
-        sim.warp = target;
-        ui.warp.value = idx;
-        ui.warpVal.textContent = target;
-      }
+      if (target !== undefined) sim.warp = target;
     }
   }
 }
@@ -1345,24 +1330,11 @@ const ui = {
   logEntries: document.getElementById('log-entries'),
   log:      document.getElementById('log'),
   controls: document.getElementById('controls'),
-  throttle: document.getElementById('throttle'),
-  throttleVal: document.getElementById('throttle-val'),
-  warp:     document.getElementById('warp'),
-  warpVal:  document.getElementById('warp-val'),
   action:   document.getElementById('action'),
   pause:    document.getElementById('pause'),
   reset:    document.getElementById('reset'),
 };
 
-ui.throttle.addEventListener('input', () => {
-  sim.throttle = parseInt(ui.throttle.value) / 100;
-  ui.throttleVal.textContent = ui.throttle.value;
-});
-ui.warp.addEventListener('input', () => {
-  sim.warp = WARP_LEVELS[parseInt(ui.warp.value)];
-  ui.warpVal.textContent = sim.warp;
-  sim.autoWarpEnabled = false;       // user override
-});
 ui.action.addEventListener('click', () => {
   if (!sim.started) {
     sim.started = true;
@@ -1409,8 +1381,6 @@ window.addEventListener('orientationchange', updateLogPosition);
 
 function fullReset(autorestart) {
   sim = freshSim();
-  sim.throttle = parseInt(ui.throttle.value) / 100;
-  sim.warp = WARP_LEVELS[parseInt(ui.warp.value)];
   sim.autoWarpEnabled = true;
   ui.logEntries.innerHTML = '';
   ui.action.style.display = '';
@@ -1588,11 +1558,11 @@ function drawGalaxies() {
     let s = 0xC0FFEE;
     function rnd() { s = (s*1664525 + 1013904223) >>> 0; return s / 0xffffffff; }
     const palette = mobile ? [
-      ['rgba(170, 110, 230, 0.75)', 'rgba(70, 35, 140, 0.26)'],    // violet
-      ['rgba(100, 185, 245, 0.70)', 'rgba(25, 75, 135, 0.24)'],    // cyan-blue
-      ['rgba(240, 130, 185, 0.65)', 'rgba(125, 35, 95, 0.22)'],    // pink
-      ['rgba(255, 215, 155, 0.60)', 'rgba(140, 80, 35, 0.20)'],    // amber
-      ['rgba(140, 220, 200, 0.60)', 'rgba(50, 110, 100, 0.20)'],   // teal
+      ['rgba(170, 110, 230, 0.40)', 'rgba(70, 35, 140, 0.14)'],    // violet
+      ['rgba(100, 185, 245, 0.36)', 'rgba(25, 75, 135, 0.13)'],    // cyan-blue
+      ['rgba(240, 130, 185, 0.32)', 'rgba(125, 35, 95, 0.12)'],    // pink
+      ['rgba(255, 215, 155, 0.28)', 'rgba(140, 80, 35, 0.11)'],    // amber
+      ['rgba(140, 220, 200, 0.28)', 'rgba(50, 110, 100, 0.11)'],   // teal
     ] : [
       ['rgba(140, 90, 200, 0.55)',  'rgba(60, 30, 120, 0.18)'],    // violet
       ['rgba(80, 160, 220, 0.50)',  'rgba(20, 60, 110, 0.16)'],    // cyan-blue
